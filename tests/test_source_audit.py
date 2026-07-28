@@ -41,8 +41,14 @@ def make_valid_frame() -> pd.DataFrame:
     )
 
 
+def make_neutral_frame() -> pd.DataFrame:
+    frame = make_valid_frame()
+    frame.loc[1, "MATCHUP"] = "BBB vs. AAA"
+    return frame
+
+
 def test_classify_location() -> None:
-    assert classify_location("AAA vs. BBB") == "home"
+    assert classify_location("AAA vs. BBB") == "vs"
     assert classify_location("BBB @ AAA") == "away"
 
 
@@ -63,9 +69,20 @@ def test_summarize_valid_game_pair() -> None:
 
     assert summary.rows == 2
     assert summary.games == 1
-    assert summary.home_rows == 1
+    assert summary.standard_home_rows == 1
     assert summary.away_rows == 1
+    assert summary.neutral_site_games == 0
     assert summary.duplicate_team_game_rows == 0
+    assert summary.invalid_game_pair_count == 0
+
+
+def test_summarize_accepts_neutral_site_pair() -> None:
+    summary = summarize(make_neutral_frame(), season="2024-25")
+
+    assert summary.games == 1
+    assert summary.standard_home_rows == 0
+    assert summary.away_rows == 0
+    assert summary.neutral_site_games == 1
     assert summary.invalid_game_pair_count == 0
 
 
@@ -77,5 +94,5 @@ def test_summarize_rejects_duplicate_team_game() -> None:
 
 
 def test_summarize_rejects_incomplete_pair() -> None:
-    with pytest.raises(ValueError, match="exactly one home and one away"):
+    with pytest.raises(ValueError, match="invalid team-row pairing"):
         summarize(make_valid_frame().iloc[[0]], season="2024-25")
