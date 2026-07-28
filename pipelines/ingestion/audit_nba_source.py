@@ -44,16 +44,21 @@ class AuditSummary:
     season: str
     rows: int
     games: int
-    home_rows: int
+    standard_home_rows: int
     away_rows: int
+    neutral_site_games: int
     duplicate_team_game_rows: int
     invalid_game_pair_count: int
 
 
 def classify_location(matchup: str) -> str:
-    """Return ``home`` or ``away`` from an NBA matchup string."""
+    """Return the location marker encoded by an NBA ``MATCHUP`` string.
+
+    ``vs.`` normally identifies the listed home team, but NBA.com also uses it for both teams in
+    some neutral-site games. The game-level validator resolves that ambiguity.
+    """
     if " vs. " in matchup:
-        return "home"
+        return "vs"
     if " @ " in matchup:
         return "away"
     raise ValueError(f"Unrecognized MATCHUP format: {matchup!r}")
@@ -71,11 +76,16 @@ def validate_schema(frame: pd.DataFrame) -> None:
 
 
 def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
-    """Validate team-game uniqueness and home/away game pairing."""
+    """Validate team-game uniqueness and NBA matchup-pair semantics.
+
+    A standard game has one ``vs.`` row and one ``@`` row. A neutral-site game may have two
+    ``vs.`` rows, so it is retained and counted separately. Official home/away assignment for those
+    games must later come from the schedule endpoint rather than ``LeagueGameLog.MATCHUP``.
+    """
     validate_schema(frame)
 
     audited = frame.copy()
-    audited["LOCATION"] = audited["MATCHUP"].map(classify_location)
+    audited["LOCATION_MARKER"] = audited["MATCHUP"].map(classify_location)
 
     duplicate_count = int(audited.duplicated(subset=["GAME_ID", "TEAM_ID"]).sum())
     if duplicate_count:
@@ -83,22 +93,28 @@ def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
 
     grouped = audited.groupby("GAME_ID", sort=False)
     row_counts = grouped.size()
-    home_counts = grouped["LOCATION"].apply(lambda values: int((values == "home").sum()))
-    away_counts = grouped["LOCATION"].apply(lambda values: int((values == "away").sum()))
+    vs_counts = grouped["LOCATION_MARKER"].apply(lambda values: int((values == "vs").sum()))
+    away_counts = grouped["LOCATION_MARKER"].apply(lambda values: int((values == "away").sum()))
 
-    invalid_mask = (row_counts != 2) | (home_counts != 1) | (away_counts != 1)
+    standard_mask = (row_counts == 2) & (vs_counts == 1) & (away_counts == 1)
+    neutral_mask = (row_counts == 2) & (vs_counts == 2) & (away_counts == 0)
+    invalid_mask = ~(standard_mask | neutral_mask)
     invalid_pair_count = int(invalid_mask.sum())
     if invalid_pair_count:
+        invalid_game_ids = [str(game_id) for game_id in invalid_mask[invalid_mask].index[:10]]
         raise ValueError(
-            f"Found {invalid_pair_count} games without exactly one home and one away row"
+            "Found "
+            f"{invalid_pair_count} games with invalid team-row pairing; "
+            f"sample GAME_ID values: {invalid_game_ids}"
         )
 
     return AuditSummary(
         season=season,
         rows=len(audited),
         games=int(audited["GAME_ID"].nunique()),
-        home_rows=int((audited["LOCATION"] == "home").sum()),
-        away_rows=int((audited["LOCATION"] == "away").sum()),
+        standard_home_rows=int(standard_mask.sum()),
+        away_rows=int((audited["LOCATION_MARKER"] == "away").sum()),
+        neutral_site_games=int(neutral_mask.sum()),
         duplicate_team_game_rows=duplicate_count,
         invalid_game_pair_count=invalid_pair_count,
     )
