@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 REQUIRED_PATHS = (
     "app/api",
     "app/dashboard",
