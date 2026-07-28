@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from pipelines.ingestion.audit_nba_source import classify_location, summarize, validate_schema
 
 
@@ -46,6 +47,12 @@ def make_neutral_frame() -> pd.DataFrame:
     return frame
 
 
+def make_all_away_frame() -> pd.DataFrame:
+    frame = make_valid_frame()
+    frame.loc[0, "MATCHUP"] = "AAA @ BBB"
+    return frame
+
+
 def test_classify_location() -> None:
     assert classify_location("AAA vs. BBB") == "vs"
     assert classify_location("BBB @ AAA") == "away"
@@ -71,6 +78,7 @@ def test_summarize_valid_game_pair() -> None:
     assert summary.standard_home_rows == 1
     assert summary.away_rows == 1
     assert summary.neutral_site_games == 0
+    assert summary.ambiguous_all_away_games == 0
     assert summary.duplicate_team_game_rows == 0
     assert summary.invalid_game_pair_count == 0
 
@@ -82,6 +90,18 @@ def test_summarize_accepts_neutral_site_pair() -> None:
     assert summary.standard_home_rows == 0
     assert summary.away_rows == 0
     assert summary.neutral_site_games == 1
+    assert summary.ambiguous_all_away_games == 0
+    assert summary.invalid_game_pair_count == 0
+
+
+def test_summarize_accepts_all_away_pair() -> None:
+    summary = summarize(make_all_away_frame(), season="2024-25")
+
+    assert summary.games == 1
+    assert summary.standard_home_rows == 0
+    assert summary.away_rows == 2
+    assert summary.neutral_site_games == 0
+    assert summary.ambiguous_all_away_games == 1
     assert summary.invalid_game_pair_count == 0
 
 
