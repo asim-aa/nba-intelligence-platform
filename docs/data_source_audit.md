@@ -44,7 +44,7 @@ therefore have exactly two rows sharing the same `GAME_ID`.
 
 Preferred endpoints:
 
-- `ScheduleLeagueV2` for league schedules
+- `ScheduleLeagueV2` for league schedules and official home/away assignments
 - `ScoreboardV3` for date-level game status and near-term schedules
 
 ### Detailed box scores
@@ -63,14 +63,24 @@ Phase 2 does not depend on these endpoints.
 - `TEAM_ID` is the canonical team key.
 - Team names and abbreviations are descriptive attributes, not primary keys.
 
-## Home and away inference
+## Home, away, and neutral-site inference
 
-`MATCHUP` encodes location:
+`MATCHUP` normally encodes location:
 
-- `TEAM vs. OPP` means the listed team is home.
-- `TEAM @ OPP` means the listed team is away.
+- `TEAM vs. OPP` marks the listed team with a `vs.` location indicator.
+- `TEAM @ OPP` marks the listed team as away.
 
-Every completed game must resolve to one home row and one away row.
+A standard completed game has one `vs.` row and one `@` row. The live 2024-25 audit revealed that
+NBA.com can use `vs.` for both teams in neutral-site games. Those games are valid two-team records,
+not corrupt pairs.
+
+The audit therefore:
+
+1. accepts one-`vs.`/one-`@` standard pairs;
+2. accepts two-`vs.` neutral-site pairs and counts them separately;
+3. rejects every other pairing;
+4. defers official home/away resolution for neutral-site games to `ScheduleLeagueV2`;
+5. requires a neutral-site indicator in the future feature pipeline.
 
 ## Reliability controls
 
@@ -82,8 +92,9 @@ The ingestion layer must:
 4. validate required columns before writing files;
 5. reject duplicate team-game rows;
 6. verify two team rows per completed game;
-7. write raw responses without silently changing source values;
-8. record runtime metadata and validation results.
+7. distinguish standard and neutral-site matchup pairs;
+8. write raw responses without silently changing source values;
+9. record runtime metadata and validation results.
 
 ## Storage policy
 
