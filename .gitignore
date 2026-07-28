@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Data and generated artifacts
+data/raw/**
+data/interim/**
+data/samples/**
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/samples/.gitkeep
+artifacts/**
+!artifacts/.gitkeep
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Build outputs
+dist/
+build/
