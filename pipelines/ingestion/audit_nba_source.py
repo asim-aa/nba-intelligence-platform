@@ -104,24 +104,46 @@ def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
     )
 
 
-def download_team_game_log(season: str, timeout: int = 30) -> pd.DataFrame:
-    """Fetch regular-season team game logs from NBA.com via ``nba_api``."""
+def download_team_game_log(
+    season: str,
+    timeout: int = 30,
+    max_attempts: int = 3,
+    backoff_seconds: float = 1.0,
+) -> pd.DataFrame:
+    """Fetch regular-season team game logs with bounded exponential-backoff retries."""
     from nba_api.stats.endpoints import leaguegamelog
 
-    endpoint = leaguegamelog.LeagueGameLog(
-        counter=0,
-        direction="DESC",
-        league_id="00",
-        player_or_team_abbreviation="T",
-        season=season,
-        season_type_all_star="Regular Season",
-        sorter="DATE",
-        timeout=timeout,
-    )
-    frames = endpoint.get_data_frames()
-    if not frames:
-        raise ValueError("LeagueGameLog returned no result sets")
-    return frames[0]
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+    if backoff_seconds < 0:
+        raise ValueError("backoff_seconds cannot be negative")
+
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            endpoint = leaguegamelog.LeagueGameLog(
+                counter=0,
+                direction="DESC",
+                league_id="00",
+                player_or_team_abbreviation="T",
+                season=season,
+                season_type_all_star="Regular Season",
+                sorter="DATE",
+                timeout=timeout,
+            )
+            frames = endpoint.get_data_frames()
+            if not frames:
+                raise ValueError("LeagueGameLog returned no result sets")
+            return frames[0]
+        except Exception as error:
+            last_error = error
+            if attempt == max_attempts:
+                break
+            time.sleep(backoff_seconds * (2 ** (attempt - 1)))
+
+    raise RuntimeError(
+        f"LeagueGameLog failed after {max_attempts} attempts for season {season}"
+    ) from last_error
 
 
 def write_outputs(
@@ -159,7 +181,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--season", default="2024-25")
     parser.add_argument("--sample-rows", type=int, default=20)
     parser.add_argument("--timeout", type=int, default=30)
-    parser.add_argument("--request-delay", type=float, default=0.6)
+    parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--backoff-seconds", type=float, default=1.0)
     return parser.parse_args()
 
 
@@ -169,12 +192,14 @@ def main() -> None:
         raise ValueError("--sample-rows must be at least 1")
     if args.timeout < 1:
         raise ValueError("--timeout must be at least 1")
-    if args.request_delay < 0:
-        raise ValueError("--request-delay cannot be negative")
 
     project_root = Path(__file__).resolve().parents[2]
-    frame = download_team_game_log(season=args.season, timeout=args.timeout)
-    time.sleep(args.request_delay)
+    frame = download_team_game_log(
+        season=args.season,
+        timeout=args.timeout,
+        max_attempts=args.max_attempts,
+        backoff_seconds=args.backoff_seconds,
+    )
     summary = summarize(frame, season=args.season)
     raw_path, sample_path, metadata_path = write_outputs(
         frame=frame,
