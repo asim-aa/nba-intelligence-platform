@@ -47,6 +47,7 @@ class AuditSummary:
     standard_home_rows: int
     away_rows: int
     neutral_site_games: int
+    ambiguous_all_away_games: int
     duplicate_team_game_rows: int
     invalid_game_pair_count: int
 
@@ -54,8 +55,9 @@ class AuditSummary:
 def classify_location(matchup: str) -> str:
     """Return the location marker encoded by an NBA ``MATCHUP`` string.
 
-    ``vs.`` normally identifies the listed home team, but NBA.com also uses it for both teams in
-    some neutral-site games. The game-level validator resolves that ambiguity.
+    ``vs.`` normally identifies the listed home team, but NBA.com also uses identical location
+    markers for both teams in some special-event games. The game-level validator resolves those
+    source patterns without guessing the official home team.
     """
     if " vs. " in matchup:
         return "vs"
@@ -78,9 +80,9 @@ def validate_schema(frame: pd.DataFrame) -> None:
 def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
     """Validate team-game uniqueness and NBA matchup-pair semantics.
 
-    A standard game has one ``vs.`` row and one ``@`` row. A neutral-site game may have two
-    ``vs.`` rows, so it is retained and counted separately. Official home/away assignment for those
-    games must later come from the schedule endpoint rather than ``LeagueGameLog.MATCHUP``.
+    A standard game has one ``vs.`` row and one ``@`` row. NBA.com may also return two ``vs.`` rows
+    or two ``@`` rows for special-event games. Those records remain valid two-team game pairs, but
+    official home/away assignment must later come from the schedule endpoint.
     """
     validate_schema(frame)
 
@@ -98,7 +100,8 @@ def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
 
     standard_mask = (row_counts == 2) & (vs_counts == 1) & (away_counts == 1)
     neutral_mask = (row_counts == 2) & (vs_counts == 2) & (away_counts == 0)
-    invalid_mask = ~(standard_mask | neutral_mask)
+    all_away_mask = (row_counts == 2) & (vs_counts == 0) & (away_counts == 2)
+    invalid_mask = ~(standard_mask | neutral_mask | all_away_mask)
     invalid_pair_count = int(invalid_mask.sum())
     if invalid_pair_count:
         invalid_game_ids = [str(game_id) for game_id in invalid_mask[invalid_mask].index[:10]]
@@ -115,6 +118,7 @@ def summarize(frame: pd.DataFrame, season: str) -> AuditSummary:
         standard_home_rows=int(standard_mask.sum()),
         away_rows=int((audited["LOCATION_MARKER"] == "away").sum()),
         neutral_site_games=int(neutral_mask.sum()),
+        ambiguous_all_away_games=int(all_away_mask.sum()),
         duplicate_team_game_rows=duplicate_count,
         invalid_game_pair_count=invalid_pair_count,
     )
