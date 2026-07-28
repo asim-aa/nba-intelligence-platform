@@ -63,24 +63,31 @@ Phase 2 does not depend on these endpoints.
 - `TEAM_ID` is the canonical team key.
 - Team names and abbreviations are descriptive attributes, not primary keys.
 
-## Home, away, and neutral-site inference
+## Home, away, and special-event inference
 
 `MATCHUP` normally encodes location:
 
 - `TEAM vs. OPP` marks the listed team with a `vs.` location indicator.
 - `TEAM @ OPP` marks the listed team as away.
 
-A standard completed game has one `vs.` row and one `@` row. The live 2024-25 audit revealed that
-NBA.com can use `vs.` for both teams in neutral-site games. Those games are valid two-team records,
-not corrupt pairs.
+A standard completed game has one `vs.` row and one `@` row. The live 2024-25 audit revealed two
+additional valid source patterns:
+
+- NBA.com can use `vs.` for both team rows in some neutral-site games.
+- NBA.com can use `@` for both team rows in some special-event games.
+
+These are still valid two-team records, but `LeagueGameLog.MATCHUP` alone cannot determine the
+official home team. The audit preserves them and records the ambiguous pattern instead of silently
+guessing or deleting the games.
 
 The audit therefore:
 
 1. accepts one-`vs.`/one-`@` standard pairs;
-2. accepts two-`vs.` neutral-site pairs and counts them separately;
-3. rejects every other pairing;
-4. defers official home/away resolution for neutral-site games to `ScheduleLeagueV2`;
-5. requires a neutral-site indicator in the future feature pipeline.
+2. accepts two-`vs.` pairs and counts them as neutral-site games;
+3. accepts two-`@` pairs and counts them as ambiguous all-away games;
+4. rejects every other pairing;
+5. defers official home/away resolution for ambiguous games to `ScheduleLeagueV2`;
+6. requires a special-site or ambiguous-location indicator in the future feature pipeline.
 
 ## Reliability controls
 
@@ -92,7 +99,7 @@ The ingestion layer must:
 4. validate required columns before writing files;
 5. reject duplicate team-game rows;
 6. verify two team rows per completed game;
-7. distinguish standard and neutral-site matchup pairs;
+7. distinguish standard, neutral-site, and ambiguous all-away matchup pairs;
 8. write raw responses without silently changing source values;
 9. record runtime metadata and validation results.
 
