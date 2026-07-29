@@ -1,0 +1,15 @@
+{
+  "seasons_processed": 1,
+  "total_game_rows": 1230,
+  "season_results": [
+    {
+      "season": "2024-25",
+      "source_games": 1230,
+      "initially_resolved_games": 1225,
+      "ambiguous_games": 5,
+      "reconciled_games": 5,
+      "final_game_rows": 1230
+    }
+  ],
+  "combined_output_path": "/Users/asim/nba-intelligence-platform/data/processed/nba/games/all_seasons.parquet"
+}

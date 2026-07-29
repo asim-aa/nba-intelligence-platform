@@ -1,6 +1,10 @@
 import pandas as pd
 import pytest
-from pipelines.ingestion.audit_nba_source import classify_location, summarize, validate_schema
+from pipelines.ingestion.audit_nba_source import (
+    classify_location,
+    summarize,
+    validate_schema,
+)
 
 
 def make_valid_frame() -> pd.DataFrame:
