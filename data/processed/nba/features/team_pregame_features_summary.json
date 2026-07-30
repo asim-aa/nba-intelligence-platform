@@ -1,0 +1,26 @@
+{
+  "source_team_rows": 2460,
+  "output_feature_rows": 2460,
+  "unique_teams": 30,
+  "seasons": 1,
+  "feature_columns": [
+    "IS_HOME",
+    "TEAM_GAME_NUMBER",
+    "PRIOR_GAMES_PLAYED",
+    "DAYS_REST",
+    "IS_BACK_TO_BACK",
+    "SEASON_WIN_PCT",
+    "ROLLING_5_WIN_PCT",
+    "ROLLING_10_WIN_PCT",
+    "ROLLING_5_POINTS_SCORED",
+    "ROLLING_10_POINTS_SCORED",
+    "ROLLING_5_POINTS_ALLOWED",
+    "ROLLING_10_POINTS_ALLOWED",
+    "ROLLING_5_POINT_DIFFERENTIAL",
+    "ROLLING_10_POINT_DIFFERENTIAL"
+  ],
+  "rows_without_prior_history": 30,
+  "back_to_back_rows": 450,
+  "first_game_date": "2024-10-22",
+  "last_game_date": "2025-04-13"
+}
