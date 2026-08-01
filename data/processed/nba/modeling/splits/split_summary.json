@@ -1,0 +1,41 @@
+{
+  "source_rows": 6000,
+  "train": {
+    "name": "train",
+    "seasons": [
+      "2020-21",
+      "2021-22",
+      "2022-23"
+    ],
+    "rows": 3540,
+    "first_game_date": "2020-12-22",
+    "last_game_date": "2023-04-09",
+    "home_wins": 1970,
+    "away_wins": 1570,
+    "home_win_rate": 0.556497175141243
+  },
+  "validation": {
+    "name": "validation",
+    "seasons": [
+      "2023-24"
+    ],
+    "rows": 1230,
+    "first_game_date": "2023-10-24",
+    "last_game_date": "2024-04-14",
+    "home_wins": 668,
+    "away_wins": 562,
+    "home_win_rate": 0.5430894308943089
+  },
+  "test": {
+    "name": "test",
+    "seasons": [
+      "2024-25"
+    ],
+    "rows": 1230,
+    "first_game_date": "2024-10-22",
+    "last_game_date": "2025-04-13",
+    "home_wins": 669,
+    "away_wins": 561,
+    "home_win_rate": 0.5439024390243903
+  }
+}

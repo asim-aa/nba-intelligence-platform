@@ -1,7 +1,39 @@
 {
-  "seasons_processed": 1,
-  "total_game_rows": 1230,
+  "seasons_processed": 5,
+  "total_game_rows": 6000,
   "season_results": [
+    {
+      "season": "2020-21",
+      "source_games": 1080,
+      "initially_resolved_games": 1080,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1080
+    },
+    {
+      "season": "2021-22",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2022-23",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2023-24",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
     {
       "season": "2024-25",
       "source_games": 1230,
