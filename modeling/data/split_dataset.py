@@ -1,14 +1,15 @@
 """Create chronological train, validation, and test NBA datasets.
 
-The modeling dataset spans five regular seasons. We split by complete season
-instead of randomly shuffling games:
+The modeling dataset spans the full target acquisition window from
+docs/project_spec.md §3. We split by complete season instead of randomly
+shuffling games, matching the provisional split from project_spec.md §6:
 
-    Train:      2020-21 through 2022-23
+    Train:      2015-16 through 2022-23
     Validation: 2023-24
-    Test:       2024-25
+    Test:       2024-25 through 2025-26
 
 The validation season is used for model and hyperparameter selection. The
-test season remains untouched until Phase 8's final evaluation.
+test seasons remain untouched until Phase 8's final evaluation.
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ from typing import Final
 import pandas as pd
 
 TRAIN_SEASONS: Final[tuple[str, ...]] = (
+    "2015-16",
+    "2016-17",
+    "2017-18",
+    "2018-19",
+    "2019-20",
     "2020-21",
     "2021-22",
     "2022-23",
@@ -29,7 +35,7 @@ TRAIN_SEASONS: Final[tuple[str, ...]] = (
 
 VALIDATION_SEASONS: Final[tuple[str, ...]] = ("2023-24",)
 
-TEST_SEASONS: Final[tuple[str, ...]] = ("2024-25",)
+TEST_SEASONS: Final[tuple[str, ...]] = ("2024-25", "2025-26")
 
 REQUIRED_COLUMNS: Final[frozenset[str]] = frozenset(
     {

@@ -1,7 +1,47 @@
 {
-  "seasons_processed": 5,
-  "total_game_rows": 6000,
+  "seasons_processed": 11,
+  "total_game_rows": 13209,
   "season_results": [
+    {
+      "season": "2015-16",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2016-17",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2017-18",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2018-19",
+      "source_games": 1230,
+      "initially_resolved_games": 1230,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1230
+    },
+    {
+      "season": "2019-20",
+      "source_games": 1059,
+      "initially_resolved_games": 1059,
+      "ambiguous_games": 0,
+      "reconciled_games": 0,
+      "final_game_rows": 1059
+    },
     {
       "season": "2020-21",
       "source_games": 1080,
@@ -41,7 +81,15 @@
       "ambiguous_games": 5,
       "reconciled_games": 5,
       "final_game_rows": 1230
+    },
+    {
+      "season": "2025-26",
+      "source_games": 1230,
+      "initially_resolved_games": 1225,
+      "ambiguous_games": 5,
+      "reconciled_games": 5,
+      "final_game_rows": 1230
     }
   ],
-  "combined_output_path": "/Users/asim/nba-intelligence-platform/data/processed/nba/games/all_seasons.parquet"
+  "combined_output_path": "/Users/asim/personal-projects/nba-intelligence-platform/data/processed/nba/games/all_seasons.parquet"
 }

@@ -8,7 +8,7 @@ NBA regular-season game using only information available before tipoff.
 - [x] Phase 0: prediction problem and leakage policy
 - [x] Phase 1: repository and development environment
 - [x] Phase 2: source-design audit and networked sample validator
-- [ ] Phase 3: full historical ingestion pipeline
+- [x] Phase 3: full historical ingestion pipeline
 
 ## Scope
 

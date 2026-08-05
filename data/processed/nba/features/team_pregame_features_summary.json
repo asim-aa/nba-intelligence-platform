@@ -1,8 +1,8 @@
 {
-  "source_team_rows": 12000,
-  "output_feature_rows": 12000,
+  "source_team_rows": 26418,
+  "output_feature_rows": 26418,
   "unique_teams": 30,
-  "seasons": 5,
+  "seasons": 11,
   "feature_columns": [
     "IS_HOME",
     "TEAM_GAME_NUMBER",
@@ -19,8 +19,8 @@
     "ROLLING_5_POINT_DIFFERENTIAL",
     "ROLLING_10_POINT_DIFFERENTIAL"
   ],
-  "rows_without_prior_history": 150,
-  "back_to_back_rows": 2153,
-  "first_game_date": "2020-12-22",
-  "last_game_date": "2025-04-13"
+  "rows_without_prior_history": 330,
+  "back_to_back_rows": 4765,
+  "first_game_date": "2015-10-27",
+  "last_game_date": "2026-04-12"
 }

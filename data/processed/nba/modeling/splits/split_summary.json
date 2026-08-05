@@ -1,18 +1,23 @@
 {
-  "source_rows": 6000,
+  "source_rows": 13209,
   "train": {
     "name": "train",
     "seasons": [
+      "2015-16",
+      "2016-17",
+      "2017-18",
+      "2018-19",
+      "2019-20",
       "2020-21",
       "2021-22",
       "2022-23"
     ],
-    "rows": 3540,
-    "first_game_date": "2020-12-22",
+    "rows": 9519,
+    "first_game_date": "2015-10-27",
     "last_game_date": "2023-04-09",
-    "home_wins": 1970,
-    "away_wins": 1570,
-    "home_win_rate": 0.556497175141243
+    "home_wins": 5437,
+    "away_wins": 4082,
+    "home_win_rate": 0.5711734425885072
   },
   "validation": {
     "name": "validation",
@@ -29,13 +34,14 @@
   "test": {
     "name": "test",
     "seasons": [
-      "2024-25"
+      "2024-25",
+      "2025-26"
     ],
-    "rows": 1230,
+    "rows": 2460,
     "first_game_date": "2024-10-22",
-    "last_game_date": "2025-04-13",
-    "home_wins": 669,
-    "away_wins": 561,
-    "home_win_rate": 0.5439024390243903
+    "last_game_date": "2026-04-12",
+    "home_wins": 1351,
+    "away_wins": 1109,
+    "home_win_rate": 0.5491869918699187
   }
 }

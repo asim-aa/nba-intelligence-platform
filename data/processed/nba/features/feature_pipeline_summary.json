@@ -1,10 +1,10 @@
 {
-  "source_game_rows": 6000,
-  "team_history_rows": 12000,
-  "pregame_team_feature_rows": 12000,
-  "modeling_rows": 6000,
-  "seasons": 5,
+  "source_game_rows": 13209,
+  "team_history_rows": 26418,
+  "pregame_team_feature_rows": 26418,
+  "modeling_rows": 13209,
+  "seasons": 11,
   "numeric_feature_count": 41,
   "categorical_feature_count": 2,
-  "final_output_path": "/Users/asim/nba-intelligence-platform/data/processed/nba/modeling/pregame_modeling_dataset.parquet"
+  "final_output_path": "/Users/asim/personal-projects/nba-intelligence-platform/data/processed/nba/modeling/pregame_modeling_dataset.parquet"
 }

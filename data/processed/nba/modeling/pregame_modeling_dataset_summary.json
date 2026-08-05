@@ -1,15 +1,15 @@
 {
-  "source_game_rows": 6000,
-  "source_team_feature_rows": 12000,
-  "output_model_rows": 6000,
-  "unique_games": 6000,
-  "seasons": 5,
+  "source_game_rows": 13209,
+  "source_team_feature_rows": 26418,
+  "output_model_rows": 13209,
+  "unique_games": 13209,
+  "seasons": 11,
   "numeric_feature_count": 41,
   "categorical_feature_count": 2,
-  "rows_with_both_teams_history": 5921,
-  "rows_with_both_teams_5_games": 5604,
-  "rows_with_both_teams_10_games": 5219,
-  "rows_with_any_missing_numeric_features": 79,
-  "first_game_date": "2020-12-22",
-  "last_game_date": "2025-04-13"
+  "rows_with_both_teams_history": 13033,
+  "rows_with_both_teams_5_games": 12341,
+  "rows_with_both_teams_10_games": 11496,
+  "rows_with_any_missing_numeric_features": 176,
+  "first_game_date": "2015-10-27",
+  "last_game_date": "2026-04-12"
 }

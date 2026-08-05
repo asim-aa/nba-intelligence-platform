@@ -23,14 +23,19 @@ from pipelines.ingestion.audit_nba_source import (
 )
 
 # These seasons are used when the command is run without --seasons.
-# We start with five seasons so the future model has enough historical data
-# while keeping the initial download manageable.
+# This is the full target acquisition window from docs/project_spec.md §3.
 DEFAULT_SEASONS: Final[tuple[str, ...]] = (
+    "2015-16",
+    "2016-17",
+    "2017-18",
+    "2018-19",
+    "2019-20",
     "2020-21",
     "2021-22",
     "2022-23",
     "2023-24",
     "2024-25",
+    "2025-26",
 )
 
 

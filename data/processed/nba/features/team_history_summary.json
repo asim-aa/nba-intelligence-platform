@@ -1,9 +1,9 @@
 {
-  "source_game_rows": 6000,
-  "source_games": 6000,
-  "output_team_rows": 12000,
+  "source_game_rows": 13209,
+  "source_games": 13209,
+  "output_team_rows": 26418,
   "unique_teams": 30,
-  "seasons": 5,
-  "first_game_date": "2020-12-22",
-  "last_game_date": "2025-04-13"
+  "seasons": 11,
+  "first_game_date": "2015-10-27",
+  "last_game_date": "2026-04-12"
 }
