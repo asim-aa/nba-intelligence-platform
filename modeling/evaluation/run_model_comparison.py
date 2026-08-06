@@ -1,9 +1,10 @@
-"""Compare the required Phase 7 baselines against logistic regression.
+"""Compare the required Phase 7 baselines against logistic regression and CatBoost.
 
-This orchestrator fits the always-home baseline and the logistic regression
-model on the training split, then scores every model -- including the
-fitting-free better-record rule -- on both the training and validation
-splits using the shared probability_metrics module.
+This orchestrator fits the always-home baseline, logistic regression, and
+CatBoost on the training split (CatBoost also uses validation as an early-
+stopping eval_set), then scores every model -- including the fitting-free
+better-record rule -- on both the training and validation splits using the
+shared probability_metrics module.
 
 This script never reads test.parquet. Per project_spec.md section 7 (rule
 8), the held-out test seasons are evaluated only after the modeling
@@ -28,6 +29,11 @@ from modeling.baselines.predict_always_home import (
 from modeling.baselines.predict_better_record import predict_better_record
 from modeling.data.split_dataset import train_output_path, validation_output_path
 from modeling.evaluation.probability_metrics import evaluate_probabilities, metrics_to_record
+from modeling.training.train_catboost import (
+    predict_catboost,
+    train_catboost,
+    write_catboost_artifacts,
+)
 from modeling.training.train_logistic_regression import (
     predict_logistic_regression,
     train_logistic_regression,
@@ -81,10 +87,16 @@ def run_model_comparison(project_root: Path) -> list[dict[str, object]]:
 
     always_home_baseline = fit_always_home_baseline(train)
     logistic_pipeline, logistic_summary = train_logistic_regression(train)
+    catboost_model, catboost_summary = train_catboost(train, validation)
 
     write_logistic_regression_artifacts(
         pipeline=logistic_pipeline,
         summary=logistic_summary,
+        project_root=project_root,
+    )
+    write_catboost_artifacts(
+        model=catboost_model,
+        summary=catboost_summary,
         project_root=project_root,
     )
 
@@ -92,6 +104,7 @@ def run_model_comparison(project_root: Path) -> list[dict[str, object]]:
         "always_home": lambda df: predict_always_home(always_home_baseline, df),
         "better_record": predict_better_record,
         "logistic_regression": lambda df: predict_logistic_regression(logistic_pipeline, df),
+        "catboost": lambda df: predict_catboost(catboost_model, df),
     }
 
     splits = {"train": train, "validation": validation}
@@ -132,7 +145,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run the Phase 7 baseline and logistic regression comparison."""
+    """Run the Phase 7 baseline, logistic regression, and CatBoost comparison."""
 
     parse_args()
     project_root = Path(__file__).resolve().parents[2]
