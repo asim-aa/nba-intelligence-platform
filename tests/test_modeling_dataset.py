@@ -19,6 +19,7 @@ from pipelines.features.build_modeling_dataset import (
     feature_manifest_output_path,
     modeling_dataset_output_path,
     modeling_dataset_summary_path,
+    validate_elo_input,
     validate_modeling_dataset,
     validate_source_datasets,
     write_modeling_dataset_outputs,
@@ -169,6 +170,52 @@ def make_team_features() -> pd.DataFrame:
     )
 
 
+def make_elo_ratings() -> pd.DataFrame:
+    """Create Elo ratings matching every team-game row in make_team_features().
+
+    Unlike the rolling features, both teams get a defined rating even on
+    their first game (1500.0, the initial rating), since Elo has no
+    cold-start gap by design.
+    """
+
+    return pd.DataFrame(
+        [
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400001",
+                "GAME_DATE": "2024-10-22",
+                "TEAM_ID": 1610612747,
+                "ELO_RATING": 1500.0,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400001",
+                "GAME_DATE": "2024-10-22",
+                "TEAM_ID": 1610612738,
+                "ELO_RATING": 1500.0,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400002",
+                "GAME_DATE": "2024-10-24",
+                "TEAM_ID": 1610612738,
+                "ELO_RATING": 1480.0,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400002",
+                "GAME_DATE": "2024-10-24",
+                "TEAM_ID": 1610612747,
+                "ELO_RATING": 1520.0,
+            },
+        ]
+    )
+
+
 def test_validate_source_datasets_rejects_missing_columns() -> None:
     """The join should fail when a required feature column is absent."""
 
@@ -209,12 +256,36 @@ def test_validate_source_datasets_rejects_duplicate_team_rows() -> None:
         )
 
 
+def test_validate_elo_input_rejects_missing_columns() -> None:
+    elo = make_elo_ratings().drop(columns=["ELO_RATING"])
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        validate_elo_input(elo_ratings=elo, team_features=make_team_features())
+
+
+def test_validate_elo_input_rejects_duplicate_rows() -> None:
+    elo = make_elo_ratings()
+    elo = pd.concat([elo, elo.iloc[[0]]], ignore_index=True)
+
+    with pytest.raises(ValueError, match="duplicate team-game rows"):
+        validate_elo_input(elo_ratings=elo, team_features=make_team_features())
+
+
+def test_validate_elo_input_rejects_key_mismatch() -> None:
+    elo = make_elo_ratings()
+    elo.loc[0, "TEAM_ID"] = 999
+
+    with pytest.raises(ValueError, match="keys do not match"):
+        validate_elo_input(elo_ratings=elo, team_features=make_team_features())
+
+
 def test_build_modeling_dataset_creates_one_row_per_game() -> None:
     """Two team perspectives should become one matchup row."""
 
     modeling, summary = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     assert len(modeling) == 2
@@ -234,6 +305,7 @@ def test_build_modeling_dataset_assigns_home_and_away_features() -> None:
     modeling, _ = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     second_game = modeling.loc[modeling["GAME_ID"] == "0022400002"].iloc[0]
@@ -242,11 +314,13 @@ def test_build_modeling_dataset_assigns_home_and_away_features() -> None:
     assert second_game["HOME_TEAM_ABBREVIATION"] == "BOS"
     assert second_game["HOME_SEASON_WIN_PCT"] == pytest.approx(0.0)
     assert second_game["HOME_ROLLING_5_POINT_DIFFERENTIAL"] == (pytest.approx(-10.0))
+    assert second_game["HOME_ELO_RATING"] == pytest.approx(1480.0)
 
     assert second_game["AWAY_TEAM_ID"] == 1610612747
     assert second_game["AWAY_TEAM_ABBREVIATION"] == "LAL"
     assert second_game["AWAY_SEASON_WIN_PCT"] == pytest.approx(1.0)
     assert second_game["AWAY_ROLLING_5_POINT_DIFFERENTIAL"] == (pytest.approx(10.0))
+    assert second_game["AWAY_ELO_RATING"] == pytest.approx(1520.0)
 
 
 def test_build_modeling_dataset_calculates_differences() -> None:
@@ -255,6 +329,7 @@ def test_build_modeling_dataset_calculates_differences() -> None:
     modeling, _ = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     second_game = modeling.loc[modeling["GAME_ID"] == "0022400002"].iloc[0]
@@ -264,6 +339,24 @@ def test_build_modeling_dataset_calculates_differences() -> None:
     assert second_game["ROLLING_5_POINTS_ALLOWED_DIFF"] == (pytest.approx(10.0))
     assert second_game["ROLLING_5_POINT_DIFFERENTIAL_DIFF"] == (pytest.approx(-20.0))
     assert second_game["DAYS_REST_DIFF"] == pytest.approx(0.0)
+    assert second_game["ELO_RATING_DIFF"] == pytest.approx(-40.0)
+
+
+def test_build_modeling_dataset_elo_has_no_cold_start_gap() -> None:
+    """Unlike the rolling features, Elo must be defined on a team's first game."""
+
+    modeling, _ = build_modeling_dataset(
+        games=make_games(),
+        team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
+    )
+
+    first_game = modeling.loc[modeling["GAME_ID"] == "0022400001"].iloc[0]
+
+    assert pd.isna(first_game["HOME_SEASON_WIN_PCT"])
+    assert first_game["HOME_ELO_RATING"] == pytest.approx(1500.0)
+    assert first_game["AWAY_ELO_RATING"] == pytest.approx(1500.0)
+    assert first_game["ELO_RATING_DIFF"] == pytest.approx(0.0)
 
 
 def test_build_modeling_dataset_creates_history_flags() -> None:
@@ -272,6 +365,7 @@ def test_build_modeling_dataset_creates_history_flags() -> None:
     modeling, summary = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     first_game = modeling.loc[modeling["GAME_ID"] == "0022400001"].iloc[0]
@@ -307,6 +401,7 @@ def test_build_modeling_dataset_rejects_opponent_mismatch() -> None:
         build_modeling_dataset(
             games=make_games(),
             team_features=features,
+            elo_ratings=make_elo_ratings(),
         )
 
 
@@ -316,6 +411,7 @@ def test_modeling_dataset_contains_no_same_game_outcomes() -> None:
     modeling, _ = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     assert LEAKED_OUTCOME_COLUMNS.isdisjoint(modeling.columns)
@@ -328,6 +424,7 @@ def test_validate_modeling_dataset_rejects_tampered_difference() -> None:
     modeling, _ = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     modeling.loc[1, "SEASON_WIN_PCT_DIFF"] = 99.0
@@ -368,6 +465,7 @@ def test_write_modeling_dataset_outputs_creates_all_files(
     modeling, summary = build_modeling_dataset(
         games=make_games(),
         team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
     )
 
     dataset_path, summary_path, manifest_path = write_modeling_dataset_outputs(
@@ -388,7 +486,7 @@ def test_write_modeling_dataset_outputs_creates_all_files(
     summary_text = summary_path.read_text(encoding="utf-8")
 
     assert '"output_model_rows": 2' in summary_text
-    assert '"numeric_feature_count": 41' in summary_text
+    assert '"numeric_feature_count": 44' in summary_text
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -396,6 +494,7 @@ def test_write_modeling_dataset_outputs_creates_all_files(
     assert manifest["row_grain"] == "one row per NBA game"
     assert "HOME_TEAM_ID" in manifest["categorical_feature_columns"]
     assert "SEASON_WIN_PCT_DIFF" in manifest["numeric_feature_columns"]
+    assert "ELO_RATING_DIFF" in manifest["numeric_feature_columns"]
 
 
 def test_feature_manifest_matches_difference_configuration() -> None:

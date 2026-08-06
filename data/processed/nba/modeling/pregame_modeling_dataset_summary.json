@@ -4,7 +4,7 @@
   "output_model_rows": 13209,
   "unique_games": 13209,
   "seasons": 11,
-  "numeric_feature_count": 41,
+  "numeric_feature_count": 44,
   "categorical_feature_count": 2,
   "rows_with_both_teams_history": 13033,
   "rows_with_both_teams_5_games": 12341,

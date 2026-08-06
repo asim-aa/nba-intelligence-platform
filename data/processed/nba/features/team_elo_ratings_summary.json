@@ -1,0 +1,13 @@
+{
+  "source_games": 13209,
+  "output_team_rows": 26418,
+  "unique_teams": 30,
+  "seasons": 11,
+  "initial_rating": 1500.0,
+  "mean_rating": 1500.0,
+  "season_carryover": 0.75,
+  "home_court_advantage": 100.0,
+  "k_factor": 20.0,
+  "first_game_date": "2015-10-27",
+  "last_game_date": "2026-04-12"
+}

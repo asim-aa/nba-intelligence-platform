@@ -3,8 +3,10 @@
 This orchestration module rebuilds every Phase 5 artifact in dependency order:
 
 1. Convert game rows into chronological team history.
-2. Build shifted, leakage-safe pregame team features.
-3. Join home and away features into one modeling row per game.
+2. Simulate cross-season Elo ratings (independent of team history; both
+   read the Phase 4 game dataset directly).
+3. Build shifted, leakage-safe pregame team features.
+4. Join home, away, and Elo features into one modeling row per game.
 
 The final output is ready for chronological splitting and baseline modeling.
 """
@@ -25,6 +27,10 @@ from pipelines.features.build_pregame_team_features import (
     PregameFeatureSummary,
     build_pregame_team_feature_dataset,
 )
+from pipelines.features.build_team_elo_ratings import (
+    EloRatingSummary,
+    build_team_elo_ratings_dataset,
+)
 from pipelines.features.build_team_history import (
     TeamHistorySummary,
     build_team_history_dataset,
@@ -37,6 +43,7 @@ class FeaturePipelineSummary:
 
     source_game_rows: int
     team_history_rows: int
+    elo_rating_rows: int
     pregame_team_feature_rows: int
     modeling_rows: int
     seasons: int
@@ -55,6 +62,7 @@ def feature_pipeline_summary_path(project_root: Path) -> Path:
 
 def validate_stage_counts(
     team_history_summary: TeamHistorySummary,
+    elo_summary: EloRatingSummary,
     pregame_summary: PregameFeatureSummary,
     modeling_summary: ModelingDatasetSummary,
 ) -> None:
@@ -64,6 +72,9 @@ def validate_stage_counts(
 
     if team_history_summary.output_team_rows != expected_team_rows:
         raise ValueError("Team-history row count is inconsistent with source games")
+
+    if elo_summary.output_team_rows != expected_team_rows:
+        raise ValueError("Elo rating row count is inconsistent with source games")
 
     if pregame_summary.source_team_rows != expected_team_rows:
         raise ValueError("Pregame feature input count is inconsistent")
@@ -80,6 +91,9 @@ def validate_stage_counts(
     if team_history_summary.seasons != pregame_summary.seasons:
         raise ValueError("Team-history and pregame feature season counts differ")
 
+    if elo_summary.seasons != pregame_summary.seasons:
+        raise ValueError("Elo rating and pregame feature season counts differ")
+
     if pregame_summary.seasons != modeling_summary.seasons:
         raise ValueError("Pregame and modeling season counts differ")
 
@@ -92,6 +106,12 @@ def run_feature_pipeline(
     print("Building chronological team history...")
 
     team_history_summary = build_team_history_dataset(
+        project_root=project_root,
+    )
+
+    print("\nSimulating cross-season Elo ratings...")
+
+    elo_summary = build_team_elo_ratings_dataset(
         project_root=project_root,
     )
 
@@ -109,6 +129,7 @@ def run_feature_pipeline(
 
     validate_stage_counts(
         team_history_summary=team_history_summary,
+        elo_summary=elo_summary,
         pregame_summary=pregame_summary,
         modeling_summary=modeling_summary,
     )
@@ -121,6 +142,7 @@ def run_feature_pipeline(
     summary = FeaturePipelineSummary(
         source_game_rows=modeling_summary.source_game_rows,
         team_history_rows=team_history_summary.output_team_rows,
+        elo_rating_rows=elo_summary.output_team_rows,
         pregame_team_feature_rows=(pregame_summary.output_feature_rows),
         modeling_rows=modeling_summary.output_model_rows,
         seasons=modeling_summary.seasons,

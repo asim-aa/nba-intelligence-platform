@@ -26,6 +26,7 @@ def make_training_frame(rows: int = 40) -> pd.DataFrame:
     point_diff_diff = rng.uniform(-10.0, 10.0, size=rows)
     rest_diff = rng.integers(-2, 3, size=rows).astype("float64")
     back_to_back_diff = rng.integers(-1, 2, size=rows).astype("float64")
+    elo_diff = rng.uniform(-200.0, 200.0, size=rows)
 
     # A higher home win-pct differential should make a home win more likely,
     # which keeps the fitted coefficients sane without asserting exact values.
@@ -39,6 +40,7 @@ def make_training_frame(rows: int = 40) -> pd.DataFrame:
             "ROLLING_10_POINT_DIFFERENTIAL_DIFF": point_diff_diff,
             "DAYS_REST_DIFF": rest_diff,
             "IS_BACK_TO_BACK_DIFF": back_to_back_diff,
+            "ELO_RATING_DIFF": elo_diff,
             "home_win": home_win,
         }
     )

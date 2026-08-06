@@ -4,10 +4,11 @@ Per project_spec.md section 5, every more complex model must be compared
 against this one. The feature set intentionally excludes the categorical
 team-ID columns and keeps only the 10-game rolling window to stay compact:
 season-long form, recent form, recent point differential, rest advantage,
-and back-to-back status. Missing values (a team's first games of a season)
-are imputed with the training median inside the pipeline, so the same
-fitted transform can be reapplied to validation and test data without ever
-fitting on their distributions (project_spec.md section 7, rule 6).
+back-to-back status, and the opponent-adjusted Elo rating gap (see
+build_team_elo_ratings.py). Missing values (a team's first games of a
+season) are imputed with the training median inside the pipeline, so the
+same fitted transform can be reapplied to validation and test data without
+ever fitting on their distributions (project_spec.md section 7, rule 6).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ COMPACT_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "ROLLING_10_POINT_DIFFERENTIAL_DIFF",
     "DAYS_REST_DIFF",
     "IS_BACK_TO_BACK_DIFF",
+    "ELO_RATING_DIFF",
 )
 
 TARGET_COLUMN: Final[str] = "home_win"

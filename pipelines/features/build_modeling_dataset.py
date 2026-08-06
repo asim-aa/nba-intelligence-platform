@@ -6,10 +6,14 @@ in a game. A classification model needs one row per physical game.
 This module:
 
 1. Separates home-team and away-team pregame feature rows.
-2. Joins the two perspectives into one matchup row.
-3. Attaches the home_win target from the completed game dataset.
-4. Creates home-minus-away comparison features.
-5. Writes a stable feature manifest for downstream modeling.
+2. Merges in each team's pregame Elo rating (a separate, cross-season
+   source -- see build_team_elo_ratings.py -- since it is computed by a
+   sequential simulation rather than the groupby/shift window functions
+   used for the other pregame features).
+3. Joins the two perspectives into one matchup row.
+4. Attaches the home_win target from the completed game dataset.
+5. Creates home-minus-away comparison features.
+6. Writes a stable feature manifest for downstream modeling.
 
 No same-game score, win/loss result, or point differential is included as a
 predictor. The only current-game outcome retained is the target, home_win.
@@ -68,7 +72,29 @@ REQUIRED_TEAM_FEATURE_COLUMNS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# These are the actual pregame measurements copied for both teams.
+# Columns required from team_elo_ratings.parquet (see build_team_elo_ratings.py).
+REQUIRED_ELO_COLUMNS: Final[frozenset[str]] = frozenset(
+    {
+        "SEASON",
+        "SEASON_ID",
+        "GAME_ID",
+        "GAME_DATE",
+        "TEAM_ID",
+        "ELO_RATING",
+    }
+)
+
+ELO_MERGE_KEYS: Final[tuple[str, ...]] = (
+    "SEASON",
+    "SEASON_ID",
+    "GAME_ID",
+    "GAME_DATE",
+    "TEAM_ID",
+)
+
+# These are the actual pregame measurements copied for both teams. ELO_RATING
+# is never missing (see build_team_elo_ratings.py), unlike the rest of these
+# columns, which are NaN for a team's first game of a season.
 SIDE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "PRIOR_GAMES_PLAYED",
     "DAYS_REST",
@@ -82,6 +108,7 @@ SIDE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "ROLLING_10_POINTS_ALLOWED",
     "ROLLING_5_POINT_DIFFERENTIAL",
     "ROLLING_10_POINT_DIFFERENTIAL",
+    "ELO_RATING",
 )
 
 # Every feature in this collection receives a home-minus-away version.
@@ -217,6 +244,12 @@ def team_features_input_path(project_root: Path) -> Path:
     )
 
 
+def elo_ratings_input_path(project_root: Path) -> Path:
+    """Return the cross-season Elo ratings path (see build_team_elo_ratings.py)."""
+
+    return project_root / "data" / "processed" / "nba" / "features" / "team_elo_ratings.parquet"
+
+
 def modeling_dataset_output_path(project_root: Path) -> Path:
     """Return the final pregame modeling-dataset path."""
 
@@ -252,14 +285,17 @@ def feature_manifest_output_path(project_root: Path) -> Path:
 def prepare_source_frames(
     games: pd.DataFrame,
     team_features: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    elo_ratings: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Normalize identifiers and date types before validation and joining."""
 
     prepared_games = games.copy()
     prepared_features = team_features.copy()
+    prepared_elo = elo_ratings.copy()
 
     prepared_games["GAME_ID"] = prepared_games["GAME_ID"].map(normalize_game_id)
     prepared_features["GAME_ID"] = prepared_features["GAME_ID"].map(normalize_game_id)
+    prepared_elo["GAME_ID"] = prepared_elo["GAME_ID"].map(normalize_game_id)
 
     prepared_games["GAME_DATE"] = pd.to_datetime(
         prepared_games["GAME_DATE"],
@@ -269,11 +305,16 @@ def prepare_source_frames(
         prepared_features["GAME_DATE"],
         errors="raise",
     )
+    prepared_elo["GAME_DATE"] = pd.to_datetime(
+        prepared_elo["GAME_DATE"],
+        errors="raise",
+    )
 
     # SEASON_ID occasionally arrives as an integer from Parquet inference.
-    # Converting both sources to strings ensures stable merge behavior.
+    # Converting all sources to strings ensures stable merge behavior.
     prepared_games["SEASON_ID"] = prepared_games["SEASON_ID"].astype(str)
     prepared_features["SEASON_ID"] = prepared_features["SEASON_ID"].astype(str)
+    prepared_elo["SEASON_ID"] = prepared_elo["SEASON_ID"].astype(str)
 
     team_id_columns = (
         "HOME_TEAM_ID",
@@ -291,7 +332,62 @@ def prepare_source_frames(
     for column in feature_team_id_columns:
         prepared_features[column] = prepared_features[column].astype("int64")
 
-    return prepared_games, prepared_features
+    prepared_elo["TEAM_ID"] = prepared_elo["TEAM_ID"].astype("int64")
+
+    return prepared_games, prepared_features, prepared_elo
+
+
+def validate_elo_input(
+    elo_ratings: pd.DataFrame,
+    team_features: pd.DataFrame,
+) -> None:
+    """Validate Elo ratings before merging them into the pregame features.
+
+    The key set must exactly match team_features' so the upcoming
+    one-to-one merge cannot silently drop or duplicate rows.
+    """
+
+    missing_columns = REQUIRED_ELO_COLUMNS - set(elo_ratings.columns)
+
+    if missing_columns:
+        raise ValueError(f"Elo ratings are missing required columns: {sorted(missing_columns)}")
+
+    if elo_ratings.empty:
+        raise ValueError("Elo ratings cannot be empty")
+
+    duplicate_rows = int(elo_ratings.duplicated(subset=list(ELO_MERGE_KEYS)).sum())
+
+    if duplicate_rows:
+        raise ValueError(f"Elo ratings contain {duplicate_rows} duplicate team-game rows")
+
+    if elo_ratings["ELO_RATING"].isna().any():
+        raise ValueError("Elo ratings contain missing ELO_RATING values")
+
+    elo_keys = set(elo_ratings[list(ELO_MERGE_KEYS)].itertuples(index=False, name=None))
+    feature_keys = set(team_features[list(ELO_MERGE_KEYS)].itertuples(index=False, name=None))
+
+    if elo_keys != feature_keys:
+        missing_elo = sorted(feature_keys - elo_keys)[:10]
+        unexpected_elo = sorted(elo_keys - feature_keys)[:10]
+
+        raise ValueError(
+            "Elo ratings and team-feature keys do not match. "
+            f"Missing Elo for: {missing_elo}; unexpected Elo for: {unexpected_elo}"
+        )
+
+
+def merge_elo_into_team_features(
+    team_features: pd.DataFrame,
+    elo_ratings: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach each team-game row's pregame Elo rating."""
+
+    return team_features.merge(
+        elo_ratings[[*ELO_MERGE_KEYS, "ELO_RATING"]],
+        on=list(ELO_MERGE_KEYS),
+        how="inner",
+        validate="one_to_one",
+    )
 
 
 def validate_source_datasets(
@@ -633,12 +729,24 @@ def build_feature_manifest() -> dict[str, object]:
 def build_modeling_dataset(
     games: pd.DataFrame,
     team_features: pd.DataFrame,
+    elo_ratings: pd.DataFrame,
 ) -> tuple[pd.DataFrame, ModelingDatasetSummary]:
-    """Join two pregame team perspectives into one modeling row per game."""
+    """Join two pregame team perspectives, plus Elo, into one row per game."""
 
-    prepared_games, prepared_features = prepare_source_frames(
+    prepared_games, prepared_features, prepared_elo = prepare_source_frames(
         games=games,
         team_features=team_features,
+        elo_ratings=elo_ratings,
+    )
+
+    validate_elo_input(
+        elo_ratings=prepared_elo,
+        team_features=prepared_features,
+    )
+
+    prepared_features = merge_elo_into_team_features(
+        team_features=prepared_features,
+        elo_ratings=prepared_elo,
     )
 
     validate_source_datasets(
@@ -795,6 +903,7 @@ def build_modeling_dataset_from_files(
 
     game_path = games_input_path(project_root)
     team_feature_path = team_features_input_path(project_root)
+    elo_path = elo_ratings_input_path(project_root)
 
     if not game_path.exists():
         raise FileNotFoundError(f"Completed game dataset does not exist: {game_path}")
@@ -802,12 +911,17 @@ def build_modeling_dataset_from_files(
     if not team_feature_path.exists():
         raise FileNotFoundError(f"Team pregame feature dataset does not exist: {team_feature_path}")
 
+    if not elo_path.exists():
+        raise FileNotFoundError(f"Elo rating dataset does not exist: {elo_path}")
+
     games = pd.read_parquet(game_path)
     team_features = pd.read_parquet(team_feature_path)
+    elo_ratings = pd.read_parquet(elo_path)
 
     modeling, summary = build_modeling_dataset(
         games=games,
         team_features=team_features,
+        elo_ratings=elo_ratings,
     )
 
     dataset_path, summary_path, manifest_path = write_modeling_dataset_outputs(
