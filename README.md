@@ -8,7 +8,39 @@ NBA regular-season game using only information available before tipoff.
 - [x] Phase 0: prediction problem and leakage policy
 - [x] Phase 1: repository and development environment
 - [x] Phase 2: source-design audit and networked sample validator
-- [x] Phase 3: full historical ingestion pipeline
+- [x] Phase 3: full historical ingestion pipeline (2015-16 through 2025-26)
+- [x] Phase 4: game-level dataset transformation and ambiguous-matchup reconciliation
+- [x] Phase 5: leakage-safe pregame feature engineering, including opponent-adjusted Elo ratings
+- [x] Phase 6: chronological train/validation/test split and probability evaluation metrics
+- [x] Phase 7: baseline, logistic regression, and CatBoost models with a validation-based comparison
+- [x] Phase 8: one-time final evaluation on the held-out test set
+
+Version 1 is feature-complete: every phase above is implemented and tested. `app/api/` and
+`app/dashboard/` remain empty stubs — serving and visualizing predictions is unstarted follow-on
+work, not part of the phase list above.
+
+## Results
+
+The selected model is logistic regression on a compact, interpretable feature set: season win
+percentage, recent form, recent point differential, rest, back-to-backs, and an opponent-adjusted
+Elo rating differential (see `pipelines/features/build_team_elo_ratings.py`). It was selected on
+2023-24 validation performance, before the test seasons were read, after beating both required
+baselines and a regularized CatBoost model on every validation metric.
+
+Final one-time evaluation on the held-out 2024-25 through 2025-26 test set (2,460 games):
+
+| Metric | Value |
+| --- | --- |
+| Log loss | 0.5996 |
+| Brier score | 0.2067 |
+| ROC-AUC | 0.7347 |
+| Accuracy (0.50 threshold) | 0.6789 |
+| Expected calibration error | 0.0213 |
+
+Test performance matched or exceeded validation on every metric, with no sign that model selection
+had overfit to the validation season. The full comparison table, calibration table, and a
+reliability diagram are written to `artifacts/nba/final_evaluation/` when you run the pipeline
+(gitignored, generated locally — not present in a fresh clone).
 
 ## Scope
 
@@ -47,28 +79,56 @@ uv run python -m pipelines.ingestion.audit_nba_source \
 When NBA.com is reachable, the command validates the response and writes local Parquet files plus a
 runtime JSON summary. Downloaded data is intentionally excluded from Git.
 
+## Run the full pipeline
+
+Each stage reuses local output when it already exists, so re-running an earlier stage after adding
+seasons or features is cheap.
+
+```bash
+uv run python -m pipelines.ingestion.ingest_historical_seasons
+uv run python -m pipelines.transform.build_historical_game_datasets \
+  --seasons 2015-16 2016-17 2017-18 2018-19 2019-20 2020-21 2021-22 2022-23 2023-24 2024-25 2025-26
+uv run python -m pipelines.features.run_feature_pipeline
+uv run python -m modeling.data.split_dataset
+uv run python -m modeling.evaluation.run_model_comparison
+```
+
+The last command fits the baselines, logistic regression, and CatBoost on the training split and
+scores them on train and validation only — it never reads the test split, and is safe to re-run as
+often as you like while iterating.
+
+```bash
+uv run python -m modeling.evaluation.run_final_evaluation
+```
+
+This one reads the held-out test split. Per `docs/project_spec.md` section 7 (rule 8), that is only
+meant to happen once, after the modeling approach is frozen based on validation results alone —
+re-running it is harmless (it is deterministic), but its result should not go on to inform any
+further modeling decision.
+
 ## Repository structure
 
 ```text
 nba-intelligence-platform/
 ├── app/
-│   ├── api/
-│   └── dashboard/
+│   ├── api/              # unstarted: prediction-serving endpoint
+│   └── dashboard/        # unstarted: results visualization
 ├── data/
 │   ├── raw/
 │   ├── interim/
 │   └── samples/
 ├── pipelines/
 │   ├── ingestion/
-│   ├── transformations/
-│   └── features/
+│   ├── transform/        # game-level dataset + matchup reconciliation
+│   └── features/         # rolling stats, Elo ratings, final modeling dataset
 ├── modeling/
+│   ├── data/              # chronological train/validation/test split
 │   ├── baselines/
-│   ├── training/
-│   └── evaluation/
+│   ├── training/          # logistic regression, CatBoost
+│   └── evaluation/        # shared metrics, validation comparison, final evaluation
 ├── sql/
 ├── tests/
-├── artifacts/
+├── artifacts/              # trained models and evaluation outputs (gitignored)
 ├── docs/
 ├── pyproject.toml
 └── README.md
