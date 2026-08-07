@@ -62,10 +62,16 @@ def cached_model():
     return load_selected_model(PROJECT_ROOT)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def cached_matchup_features(home_team_id: int, away_team_id: int, game_date: str, season: str):
     """Compute (or look up) one matchup's feature row once, then reuse it for
     both the pre-pick stat comparison and the post-pick prediction.
+
+    ttl matches cached_season_schedule: for an upcoming ("computed")
+    matchup, the underlying team_history/elo_ratings files can change if
+    the ingestion pipeline is re-run while this process keeps running, and
+    without a ttl this cache would keep serving the stale pre-refresh
+    features indefinitely instead of picking up the new data.
     """
 
     return compute_matchup_features(
