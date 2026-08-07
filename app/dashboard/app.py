@@ -32,6 +32,7 @@ from pipelines.ingestion.fetch_schedule import (
     fetch_schedule,
     filter_regular_season_games,
     games_on_date,
+    season_for_date,
 )
 
 from app.dashboard.picks_store import (
@@ -45,18 +46,6 @@ from app.dashboard.picks_store import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DEMO_DATE = pd.Timestamp("2025-11-05")
-
-
-def season_for_date(date: pd.Timestamp) -> str:
-    """Map a calendar date to its NBA season label, such as "2025-26".
-
-    Seasons start in October and run into the following June; August 1 is
-    used as the cutover since there are never real games in July.
-    """
-
-    start_year = date.year if date.month >= 8 else date.year - 1
-
-    return f"{start_year}-{str(start_year + 1)[-2:]}"
 
 
 @st.cache_data(ttl=3600, show_spinner="Fetching NBA schedule...")

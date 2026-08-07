@@ -122,6 +122,19 @@ def normalize_game_id(value: object) -> str:
     return value_string.zfill(10)
 
 
+def season_for_date(date: pd.Timestamp) -> str:
+    """Map a calendar date to its NBA season label, such as "2025-26".
+
+    Seasons start in October and run into the following June; August 1 is
+    used as the cutover since there are never real games in July. Shared
+    by app/dashboard and app/api so both infer a season the same way.
+    """
+
+    start_year = date.year if date.month >= 8 else date.year - 1
+
+    return f"{start_year}-{str(start_year + 1)[-2:]}"
+
+
 def team_display_name(team: dict[str, Any]) -> str:
     """Join a schedule team object's city and nickname into one name."""
 

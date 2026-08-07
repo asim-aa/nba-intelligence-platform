@@ -15,9 +15,10 @@ NBA regular-season game using only information available before tipoff.
 - [x] Phase 7: baseline, logistic regression, and CatBoost models with a validation-based comparison
 - [x] Phase 8: one-time final evaluation on the held-out test set
 
-Version 1 is feature-complete: every phase above is implemented and tested. `app/api/` and
-`app/dashboard/` remain empty stubs — serving and visualizing predictions is unstarted follow-on
-work, not part of the phase list above.
+Version 1 is feature-complete: every phase above is implemented and tested. The application
+layer beyond it -- a prediction API (`app/api/`) and an interactive dashboard (`app/dashboard/`)
+-- is also built. See [`docs/roadmap.md`](docs/roadmap.md) for the maintained, authoritative
+status of every piece, including known gaps this README doesn't get into.
 
 ## Results
 
@@ -106,30 +107,57 @@ meant to happen once, after the modeling approach is frozen based on validation 
 re-running it is harmless (it is deterministic), but its result should not go on to inform any
 further modeling decision.
 
+## Run the dashboard
+
+An interactive pick-the-winner game: see a day's slate, compare the two teams' pregame stats,
+lock in your pick, then see the model's prediction and the real outcome. Tracks your accuracy
+against the model's over time.
+
+```bash
+uv run streamlit run app/dashboard/app.py
+```
+
+## Run the API
+
+Serves the same frozen model over HTTP, for any client that isn't this project's own Python.
+
+```bash
+uv run uvicorn app.api.main:app --reload
+```
+
+Then `GET /predict` for one matchup, or `GET /slate` for a whole day:
+
+```bash
+curl "http://127.0.0.1:8000/slate?date=2025-11-05"
+```
+
+Interactive API docs are at `http://127.0.0.1:8000/docs` once it's running.
+
 ## Repository structure
 
 ```text
 nba-intelligence-platform/
 ├── app/
-│   ├── api/              # unstarted: prediction-serving endpoint
-│   └── dashboard/        # unstarted: results visualization
+│   ├── api/              # FastAPI prediction service
+│   └── dashboard/        # Streamlit pick-the-winner game
 ├── data/
 │   ├── raw/
 │   ├── interim/
 │   └── samples/
 ├── pipelines/
-│   ├── ingestion/
+│   ├── ingestion/        # historical ingestion + live schedule fetch
 │   ├── transform/        # game-level dataset + matchup reconciliation
 │   └── features/         # rolling stats, Elo ratings, final modeling dataset
 ├── modeling/
 │   ├── data/              # chronological train/validation/test split
 │   ├── baselines/
 │   ├── training/          # logistic regression, CatBoost
-│   └── evaluation/        # shared metrics, validation comparison, final evaluation
-├── sql/
+│   ├── evaluation/        # shared metrics, validation comparison, final evaluation
+│   └── serving/           # as-of-date features + prediction for app/
+├── sql/                    # picks-tracking schema
 ├── tests/
 ├── artifacts/              # trained models and evaluation outputs (gitignored)
-├── docs/
+├── docs/                   # spec, roadmap, audits, runbooks
 ├── pyproject.toml
 └── README.md
 ```

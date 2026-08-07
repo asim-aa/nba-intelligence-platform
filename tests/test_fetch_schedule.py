@@ -8,6 +8,7 @@ from pipelines.ingestion.fetch_schedule import (
     filter_regular_season_games,
     games_on_date,
     parse_schedule_payload,
+    season_for_date,
     summarize_schedule,
 )
 
@@ -254,3 +255,20 @@ def test_summarize_schedule_counts_scheduled_and_final_games() -> None:
     assert summary.regular_season_games == 2
     assert summary.final_games == 1
     assert summary.scheduled_games == 1
+
+
+def test_season_for_date_regular_season_month() -> None:
+    assert season_for_date(pd.Timestamp("2025-11-05")) == "2025-26"
+
+
+def test_season_for_date_spring_still_belongs_to_prior_fall() -> None:
+    assert season_for_date(pd.Timestamp("2026-03-15")) == "2025-26"
+
+
+def test_season_for_date_new_season_start() -> None:
+    assert season_for_date(pd.Timestamp("2026-10-15")) == "2026-27"
+
+
+def test_season_for_date_august_cutover() -> None:
+    assert season_for_date(pd.Timestamp("2026-07-31")) == "2025-26"
+    assert season_for_date(pd.Timestamp("2026-08-01")) == "2026-27"
