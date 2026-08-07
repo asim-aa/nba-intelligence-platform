@@ -7,7 +7,7 @@ stand before picking the work back up. **If this file and the README ever
 disagree, this file wins** — update it whenever a phase or gap changes,
 in the same change that changes the code.
 
-Last updated: 2026-08-06.
+Last updated: 2026-08-07.
 
 ## Core prediction pipeline (Phases 0-8) — complete
 
@@ -44,21 +44,40 @@ neither duplicates the other's logic.
   (a day's games), both backed by the frozen model. Run with
   `uv run uvicorn app.api.main:app --reload`.
 
+## Robustness and calibration diagnostics — supplementary, not Phase 8
+
+Two additional analyses go deeper than the single Phase 8 number without
+reopening or superseding it — neither retunes anything, and neither
+changes the selected model or its official test result:
+
+- **`modeling/evaluation/run_robustness_backtest.py`** — walks the exact
+  same logistic regression (same features, same fixed hyperparameters, no
+  search) forward across 8 expanding-window season cutoffs (2018-19
+  through 2025-26), instead of the single 2024-25/2025-26 cutoff Phase 8
+  uses. Finding: performance is **not** stable across cutoffs — accuracy
+  ranges from 0.621 (2020-21 cutoff) to 0.682 (2025-26 cutoff), log loss
+  from 0.596 to 0.647. The officially reported Phase 8 result sits near
+  the *favorable* end of that spread, not the middle, which is useful
+  context missing from the single-number headline. (As a sanity check,
+  this backtest's own 2024-25 and 2025-26 folds bracket the official
+  Phase 8 test log loss almost exactly, which is reassuring but not a
+  substitute for the deliberately narrower official result.)
+- **`modeling/evaluation/run_calibration_by_segment.py`** — re-slices the
+  same frozen test-set predictions Phase 8 already scored once, broken
+  down by season phase and rest status. Finding: back-to-back games have
+  more than double the calibration error of rested games (ECE 0.0395 vs.
+  0.0180), and late-season games (51+ games played) have the best log
+  loss/Brier score but the *worst* calibration error (0.0722) — the model
+  is more accurate late in the season but its stated probabilities are
+  less trustworthy at face value then, which the single test-set-wide ECE
+  in the README doesn't surface.
+
 ## Known gaps (honest, as of this writing)
 
 - `sql/` only has `picks_schema.sql` for the dashboard; no other use yet.
-- `shap` is a declared dependency but unused. It would matter more had a
-  tree-based model been selected; logistic regression's coefficients are
-  already directly interpretable, so this was never revisited.
-- `fetch_schedule.py`'s regular-season filter reproduces 1,224 of the
-  2025-26 season's 1,230 known games (99.5%). The 6-game gap doesn't fall
-  into any recognized excluded-label bucket; documented as a known,
-  unchased gap in the module's own docstring, since this module serves
-  the dashboard/API, not model training, where the historical ingestion
-  pipeline remains authoritative.
 - No CI job exercises the dashboard, the API, or the live NBA.com
   endpoints — by design, since those need network access CI shouldn't
-  depend on. Only the synthetic-fixture pytest suite (232 tests as of
+  depend on. Only the synthetic-fixture pytest suite (249 tests as of
   this writing) runs in CI.
 - No deployment story. Both the API and dashboard are meant to run
   locally; nothing here provisions hosting, TLS, or auth.
@@ -68,3 +87,9 @@ neither duplicates the other's logic.
   synthetic test fixtures, never a real future game. It should work
   unchanged once real games exist, but that's an expectation, not yet an
   observation.
+- No cross-validated variance estimate exists for the frozen Phase 8
+  result itself (only for the supplementary walk-forward backtest above,
+  which necessarily uses different, larger training windows per fold than
+  Phase 8's fixed one) — a true apples-to-apples confidence interval on
+  the exact frozen model would need bootstrap resampling of the test set,
+  which hasn't been built.

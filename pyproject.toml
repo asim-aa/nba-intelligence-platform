@@ -13,9 +13,7 @@ dependencies = [
     "pandas>=2.2,<3",
     "pyarrow>=18,<20",
     "pydantic>=2.10,<3",
-    "pydantic-settings>=2.7,<3",
     "scikit-learn>=1.9,<2",
-    "shap>=0.51,<0.52",
     "streamlit>=1.61.1,<2",
     "uvicorn>=0.52.1,<1",
 ]

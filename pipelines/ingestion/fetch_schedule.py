@@ -14,14 +14,6 @@ ingestion pipeline rather than an extension of it, since "the full
 schedule, played or not" and "completed results for model training" are
 different questions with different freshness and caching needs.
 
-Known limitation: filter_regular_season_games() reproduces 1,224 of the
-2025-26 season's 1,230 regular-season games (99.5%) when checked against
-the historical ingestion pipeline's count. The 6-game gap does not fall
-into any of the excluded label categories (each accounts for exactly the
-games expected, including the Cup knockout count), so it is left as a
-known, minor gap rather than a bug to chase further -- this module serves
-the dashboard, not model training, where the historical pipeline remains
-the authoritative source.
 """
 
 from __future__ import annotations
@@ -59,18 +51,16 @@ NON_REGULAR_SEASON_GAME_LABELS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# The Emirates NBA Cup group stage counts toward the regular season; the
-# knockout rounds (quarterfinal onward) are extra games that do not.
+# The Emirates NBA Cup group stage AND its knockout rounds (quarterfinal,
+# semifinal) all count toward the regular season -- confirmed by diffing
+# this module's filtered output against the historical ingestion
+# pipeline's LeagueGameLog("Regular Season") results for 2025-26: all six
+# quarterfinal/semifinal games use the standard "002"-prefixed regular-
+# season GAME_ID and are present in that authoritative query. Only the
+# Championship game is genuinely excluded -- it uses a distinct "006"
+# GAME_ID prefix and does not appear in the Regular Season query.
 CUP_GAME_LABEL: Final[str] = "Emirates NBA Cup"
-CUP_KNOCKOUT_SUB_LABELS: Final[frozenset[str]] = frozenset(
-    {
-        "East Quarterfinal",
-        "West Quarterfinal",
-        "East Semifinal",
-        "West Semifinal",
-        "Championship",
-    }
-)
+CUP_KNOCKOUT_SUB_LABELS: Final[frozenset[str]] = frozenset({"Championship"})
 
 # gameStatus codes used by ScheduleLeagueV2.
 GAME_STATUS_SCHEDULED: Final[int] = 1
@@ -274,10 +264,11 @@ def fetch_schedule(
 def filter_regular_season_games(schedule: pd.DataFrame) -> pd.DataFrame:
     """Keep only real, standings-counting regular-season games.
 
-    Drops preseason, All-Star weekend, Play-In, playoff games, and Emirates
-    NBA Cup knockout games. Keeps Cup group-stage games, themed weeks, and
-    international showcase games, which do count toward the regular season
-    despite carrying a promotional label. Matches project_spec.md section 3.
+    Drops preseason, All-Star weekend, Play-In, playoff games, and the
+    Emirates NBA Cup championship. Keeps Cup group-stage and knockout
+    (quarterfinal, semifinal) games, themed weeks, and international
+    showcase games, all of which count toward the regular season despite
+    carrying a promotional label. Matches project_spec.md section 3.
     """
 
     is_excluded_label = schedule["GAME_LABEL"].isin(NON_REGULAR_SEASON_GAME_LABELS)

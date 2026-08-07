@@ -172,22 +172,15 @@ def test_filter_regular_season_games_keeps_cup_group_stage() -> None:
     assert len(filtered) == 1
 
 
-def test_filter_regular_season_games_drops_cup_knockout_rounds() -> None:
+def test_filter_regular_season_games_drops_cup_championship() -> None:
     schedule = parse_schedule_payload(
         make_payload(
             {
                 "12/16/2025": [
                     make_game(
-                        game_id="0022500200",
+                        game_id="0062500001",
                         label="Emirates NBA Cup",
                         sub_label="Championship",
-                    ),
-                ],
-                "12/09/2025": [
-                    make_game(
-                        game_id="0022500201",
-                        label="Emirates NBA Cup",
-                        sub_label="East Quarterfinal",
                     ),
                 ],
             }
@@ -197,6 +190,41 @@ def test_filter_regular_season_games_drops_cup_knockout_rounds() -> None:
     filtered = filter_regular_season_games(schedule)
 
     assert filtered.empty
+
+
+def test_filter_regular_season_games_keeps_cup_knockout_rounds() -> None:
+    """Quarterfinal/semifinal Cup games use a standard "002" regular-season
+    GAME_ID and are returned by the historical pipeline's authoritative
+    LeagueGameLog("Regular Season") query -- unlike the Championship, which
+    uses a distinct "006" prefix and is genuinely excluded. Confirmed by
+    diffing this module's output against that authoritative source for the
+    2025-26 season, which is what closed a previously-documented 6-game gap.
+    """
+
+    schedule = parse_schedule_payload(
+        make_payload(
+            {
+                "12/09/2025": [
+                    make_game(
+                        game_id="0022500201",
+                        label="Emirates NBA Cup",
+                        sub_label="East Quarterfinal",
+                    ),
+                ],
+                "12/13/2025": [
+                    make_game(
+                        game_id="0022500202",
+                        label="Emirates NBA Cup",
+                        sub_label="East Semifinal",
+                    ),
+                ],
+            }
+        )
+    )
+
+    filtered = filter_regular_season_games(schedule)
+
+    assert len(filtered) == 2
 
 
 def test_filter_regular_season_games_keeps_international_showcases() -> None:

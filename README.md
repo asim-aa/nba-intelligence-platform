@@ -43,6 +43,14 @@ had overfit to the validation season. The full comparison table, calibration tab
 reliability diagram are written to `artifacts/nba/final_evaluation/` when you run the pipeline
 (gitignored, generated locally — not present in a fresh clone).
 
+This one Phase 8 number is deliberately narrow: it's from one specific season cutoff, and it's a
+single test-set-wide calibration figure. Two supplementary, non-reopening diagnostics go further
+(see `docs/roadmap.md` for the full methodology and findings): a walk-forward backtest across 8
+season cutoffs shows accuracy ranging from 0.62 to 0.68 depending on where the cutoff falls — the
+official result sits near the favorable end, not the middle — and a calibration breakdown by
+segment shows back-to-back games are markedly less well-calibrated than rested games (ECE 0.0395
+vs. 0.0180).
+
 ## Scope
 
 - NBA regular season only
@@ -106,6 +114,16 @@ This one reads the held-out test split. Per `docs/project_spec.md` section 7 (ru
 meant to happen once, after the modeling approach is frozen based on validation results alone —
 re-running it is harmless (it is deterministic), but its result should not go on to inform any
 further modeling decision.
+
+```bash
+uv run python -m modeling.evaluation.run_robustness_backtest
+uv run python -m modeling.evaluation.run_calibration_by_segment
+```
+
+Two supplementary diagnostics, safe to re-run any time: the first re-walks the same frozen model
+across multiple season cutoffs to show how much the headline metrics move with a different test
+split; the second re-slices the same frozen test-set predictions Phase 8 already scored once,
+broken down by season phase and rest status. Neither retunes anything or reopens Phase 8's result.
 
 ## Run the dashboard
 
