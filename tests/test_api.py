@@ -240,6 +240,30 @@ def test_predict_endpoint_returns_prediction(monkeypatch: pytest.MonkeyPatch) ->
     assert response.json()["home_win_probability"] == pytest.approx(0.62)
 
 
+def test_predict_endpoint_returns_400_for_malformed_date_without_season() -> None:
+    """Regression test: season inference used to parse game_date outside
+    the try/except, so a malformed date crashed with an unhandled 500
+    whenever season was omitted (but not when season was given, since
+    that path only parsed the date inside get_matchup_prediction, which
+    was already covered). No monkeypatching -- this exercises the real
+    route function, since the bug was in the route itself, before it
+    ever calls into business logic.
+    """
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/predict",
+        params={
+            "home_team_id": TEAM_A,
+            "away_team_id": TEAM_B,
+            "game_date": "not-a-real-date",
+        },
+    )
+
+    assert response.status_code == 400
+
+
 def test_predict_endpoint_returns_400_for_bad_input(monkeypatch: pytest.MonkeyPatch) -> None:
     def raise_value_error(*_args, **_kwargs):
         raise ValueError("home_team_id and away_team_id must differ")

@@ -152,9 +152,13 @@ def predict(
 ) -> MatchupPrediction:
     """Predict one matchup, by team ID and date."""
 
-    resolved_season = season or season_for_date(pd.Timestamp(game_date))
-
     try:
+        # game_date parsing happens inside the try block (not before it) so
+        # a malformed date raises the same 400 whether or not season was
+        # given -- pandas' DateParseError is a ValueError subclass, so the
+        # existing handler below already covers it.
+        resolved_season = season or season_for_date(pd.Timestamp(game_date))
+
         return get_matchup_prediction(
             PROJECT_ROOT,
             home_team_id,
