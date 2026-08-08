@@ -135,6 +135,13 @@ against the model's over time.
 uv run streamlit run app/dashboard/app.py
 ```
 
+The "Live calibration monitor" expander scores your real, resolved picks against the frozen
+test-set reference -- the same check is available standalone:
+
+```bash
+uv run python -m app.dashboard.live_calibration_monitor
+```
+
 ## Run the API
 
 Serves the same frozen model over HTTP, for any client that isn't this project's own Python.

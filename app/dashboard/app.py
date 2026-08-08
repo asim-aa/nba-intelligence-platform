@@ -35,6 +35,10 @@ from pipelines.ingestion.fetch_schedule import (
     season_for_date,
 )
 
+from app.dashboard.live_calibration_monitor import (
+    load_frozen_reference_metrics,
+    run_live_calibration_monitor,
+)
 from app.dashboard.picks_store import (
     Pick,
     compute_scoreboard,
@@ -337,6 +341,47 @@ def render_refresh_button(season: str) -> None:
     st.rerun()
 
 
+def render_live_calibration() -> None:
+    """Compare the model's real, resolved predictions against its frozen
+    test-set calibration -- not a demo number, whatever picks exist so far.
+    """
+
+    st.caption(
+        "Every prediction this dashboard has made, scored against the real outcome once known, "
+        "next to the frozen model's one-time test-set result. The 'computed' row is the only "
+        "real-world evidence so far for the upcoming-matchup feature path."
+    )
+
+    frozen_reference = load_frozen_reference_metrics(PROJECT_ROOT)
+
+    if frozen_reference is not None:
+        columns = st.columns(3)
+        columns[0].metric("Frozen test log loss", f"{frozen_reference['log_loss']:.4f}")
+        columns[1].metric("Frozen test Brier", f"{frozen_reference['brier_score']:.4f}")
+        columns[2].metric(
+            "Frozen test ECE", f"{frozen_reference['expected_calibration_error']:.4f}"
+        )
+    else:
+        st.caption("Frozen test reference unavailable -- run the Phase 8 evaluation first.")
+
+    for result in run_live_calibration_monitor(PROJECT_ROOT):
+        label = result.feature_source.capitalize()
+
+        if not result.sufficient_sample:
+            st.caption(
+                f"**{label}**: {result.resolved_picks} resolved -- "
+                f"not enough signal yet ({result.reason})."
+            )
+            continue
+
+        metrics = result.metrics
+        columns = st.columns(4)
+        columns[0].metric(f"{label} resolved", result.resolved_picks)
+        columns[1].metric("Live log loss", f"{metrics['log_loss']:.4f}")
+        columns[2].metric("Live Brier", f"{metrics['brier_score']:.4f}")
+        columns[3].metric("Live ECE", f"{metrics['expected_calibration_error']:.4f}")
+
+
 def main() -> None:
     st.set_page_config(page_title="NBA Win Predictor", page_icon="🏀")
     st.title("🏀 Pick the winners")
@@ -368,6 +413,9 @@ def main() -> None:
     st.subheader("Scoreboard")
     render_scoreboard()
     render_refresh_button(season)
+
+    with st.expander("Live calibration monitor"):
+        render_live_calibration()
 
     with st.expander("Pick history"):
         picks = get_all_picks(PROJECT_ROOT)

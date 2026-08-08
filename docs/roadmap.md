@@ -7,7 +7,7 @@ stand before picking the work back up. **If this file and the README ever
 disagree, this file wins** — update it whenever a phase or gap changes,
 in the same change that changes the code.
 
-Last updated: 2026-08-07.
+Last updated: 2026-08-08.
 
 ## Core prediction pipeline (Phases 0-8) — complete
 
@@ -39,10 +39,30 @@ neither duplicates the other's logic.
 
 - **Dashboard** (`app/dashboard/`) — interactive pick-the-winner mini
   game. Shows a stat comparison before you pick, tracks your picks vs.
-  the model vs. reality in SQLite (`sql/picks_schema.sql`).
+  the model vs. reality in SQLite (`sql/picks_schema.sql`), and has a
+  "Live calibration monitor" expander (`live_calibration_monitor.py`)
+  scoring real, resolved picks against the frozen test-set reference.
 - **API** (`app/api/`) — `GET /predict` (one matchup) and `GET /slate`
   (a day's games), both backed by the frozen model. Run with
   `uv run uvicorn app.api.main:app --reload`.
+
+## Live calibration monitoring — the addressable half of "no monitoring"
+
+There is no deployed service to instrument, so traditional production
+monitoring doesn't apply -- but the dashboard's own picks database
+(`sql/picks_schema.sql`) already records every real prediction alongside
+its real outcome once known, and nothing was summarizing it. Now
+`app/dashboard/live_calibration_monitor.py` does: it scores resolved
+picks with the same metrics Phase 8 used, grouped by `feature_source`
+(`historical` vs. `computed`), next to the frozen test-set reference.
+Below 30 resolved picks in a group, or when a group's outcomes are all
+one class, it reports the sample size honestly instead of a misleading
+number -- as of this writing, real usage has only produced 24 resolved
+picks (all `historical`; `computed` has 0), so it is correctly reporting
+"not enough signal yet" rather than a number. The `computed` group is the
+first place real-world evidence for the untested "upcoming matchup" path
+(see the gap below) will ever show up, once the 2026-27 season starts and
+picks accumulate against it.
 
 ## Robustness and calibration diagnostics — supplementary, not Phase 8
 
