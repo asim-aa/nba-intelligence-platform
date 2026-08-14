@@ -137,6 +137,24 @@ across multiple season cutoffs to show how much the headline metrics move with a
 split; the second re-slices the same frozen test-set predictions Phase 8 already scored once,
 broken down by season phase and rest status. Neither retunes anything or reopens Phase 8's result.
 
+## Keep live predictions from going stale
+
+The dashboard/API's "computed" (upcoming-matchup) path reads each team's *current* rolling
+stats, Elo rating, and roster continuity from files that are static snapshots as of whenever the
+pipeline last ran. If games have been played since, predictions for upcoming games would quietly
+use each team's state as of the last refresh, not as of today.
+
+```bash
+uv run python -m pipelines.refresh_current_season
+```
+
+Run this periodically (daily is plenty) during a live season. It force-refreshes only the current
+season's raw data — past seasons never change once ingested, so they stay cached — then rebuilds
+the full feature pipeline from it. Before the season's first game it skips cleanly (there's
+nothing to refresh yet) rather than erroring. This never touches the frozen model or the
+train/validation/test splits: retraining stays a separate, deliberate, validated decision, the
+same way the roster-continuity feature above was adopted.
+
 ## Run the dashboard
 
 An interactive pick-the-winner game: see a day's slate, compare the two teams' pregame stats,
@@ -147,11 +165,18 @@ against the model's over time.
 uv run streamlit run app/dashboard/app.py
 ```
 
-The "Live calibration monitor" expander scores your real, resolved picks against the frozen
-test-set reference -- the same check is available standalone:
+A "💰 Simulated parlay stake" input sits at the top of the page -- enter an amount and it combines
+every pick locked in for that day into one parlay (every leg must win, one loss busts the whole
+thing), shown immediately below. The "Live calibration monitor" expander scores your real,
+resolved picks against the frozen test-set reference; the "Simulated betting tracker" expander
+backtests a flat-stake, fixed-odds "bet the model" strategy against them; and the "Simulated round
+robin" expander splits a day's picks into every possible mini-parlay combination of a chosen size,
+so one bad leg only kills the combinations that included it. All of this is paper only -- no real
+money, sportsbook, or payment method involved anywhere. The standalone trackers:
 
 ```bash
 uv run python -m app.dashboard.live_calibration_monitor
+uv run python -m app.dashboard.simulated_betting_tracker
 ```
 
 ## Run the API

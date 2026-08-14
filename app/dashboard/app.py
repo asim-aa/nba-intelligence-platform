@@ -47,6 +47,14 @@ from app.dashboard.picks_store import (
     record_pick,
     update_actual_result,
 )
+from app.dashboard.simulated_betting_tracker import (
+    FIXED_AMERICAN_ODDS,
+    FLAT_STAKE,
+    breakeven_hit_rate,
+    run_parlay_tracker,
+    run_round_robin_tracker,
+    run_simulated_betting_tracker,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DEMO_DATE = pd.Timestamp("2025-11-05")
@@ -382,6 +390,119 @@ def render_live_calibration() -> None:
         columns[3].metric("Live ECE", f"{metrics['expected_calibration_error']:.4f}")
 
 
+def render_simulated_betting_tracker() -> None:
+    """Show a paper-only "bet the model" simulation against real picks.
+
+    No real money, sportsbook account, or payment method is involved
+    anywhere in this app -- this is a backtest of a flat-staking strategy
+    at a fixed, illustrative vig, not betting advice.
+    """
+
+    st.caption(
+        f"**Simulated only** -- no real money, no sportsbook, nothing here places a real bet. "
+        f"Assumes a flat ${FLAT_STAKE:.0f} stake per resolved pick at a fixed "
+        f"{FIXED_AMERICAN_ODDS} American-odds vig (a typical sportsbook moneyline juice, not a "
+        f"real market line), which breaks even at a {breakeven_hit_rate():.1%} hit rate."
+    )
+
+    for result in run_simulated_betting_tracker(PROJECT_ROOT):
+        if not result.sufficient_sample:
+            st.caption(
+                f"**{result.strategy_name}**: {result.bets_placed} bets -- "
+                f"not enough signal yet ({result.reason})."
+            )
+            continue
+
+        st.markdown(f"**{result.strategy_name}**")
+        columns = st.columns(4)
+        columns[0].metric("Bets", result.bets_placed)
+        columns[1].metric("Hit rate", f"{result.hit_rate:.1%}")
+        columns[2].metric("Simulated profit", f"${result.total_profit:+.2f}")
+        columns[3].metric("ROI", f"{result.roi:+.1%}")
+
+        if result.beats_breakeven:
+            st.caption(f"Beats the {breakeven_hit_rate():.1%} breakeven hit rate.")
+        else:
+            st.caption(f"Below the {breakeven_hit_rate():.1%} breakeven hit rate.")
+
+
+def render_round_robin_tracker(picked_date: object) -> None:
+    """Show a same-day round robin: every combo-size combination of this
+    date's picks scored as its own independent mini-parlay.
+
+    Paper only, same fixed odds as the other trackers. One bad leg only
+    kills the combinations that included it, not every combination --
+    a softer risk shape than a straight parlay across the same picks.
+    """
+
+    st.caption(
+        "**Simulated round robin** -- paper only, no real bet placed. Splits this date's picks "
+        f"into every possible combo of the chosen size, each its own mini-parlay at a fixed "
+        f"{FIXED_AMERICAN_ODDS} illustrative vig per leg."
+    )
+
+    columns = st.columns(2)
+    stake_per_combo = columns[0].number_input(
+        "Stake per combo ($)", min_value=1.0, value=5.0, step=1.0, key="round_robin_stake"
+    )
+    combo_size = columns[1].selectbox("Combo size", options=[2, 3], key="round_robin_combo_size")
+
+    for result in run_round_robin_tracker(
+        PROJECT_ROOT,
+        game_date=str(picked_date),
+        stake_per_combo=stake_per_combo,
+        combo_size=combo_size,
+    ):
+        if result.combo_count == 0:
+            st.caption(f"**{result.strategy_name}**: {result.reason}.")
+            continue
+
+        st.markdown(f"**{result.strategy_name}**")
+        result_columns = st.columns(5)
+        result_columns[0].metric("Combos", result.combo_count)
+        result_columns[1].metric("W-L", f"{result.wins}-{result.losses}")
+        result_columns[2].metric("Pending", result.pending_combos)
+        result_columns[3].metric("Staked", f"${result.total_staked:.2f}")
+        result_columns[4].metric("Profit so far", f"${result.realized_profit:+.2f}")
+
+
+def render_parlay_summary(picked_date: object, stake: float) -> None:
+    """Show a same-day simulated parlay across every pick locked in so far.
+
+    Paper only -- no real bet is ever placed. Every leg must win; one
+    resolved loss busts the whole parlay even if other legs are still
+    pending, matching how a real parlay actually works.
+    """
+
+    st.caption(
+        f"**Simulated parlay** -- paper only, no real bet placed. Combines every pick locked in "
+        f"below for this date into one parlay at a fixed {FIXED_AMERICAN_ODDS} illustrative vig "
+        f"per leg (not a real market line)."
+    )
+
+    for result in run_parlay_tracker(PROJECT_ROOT, game_date=str(picked_date), stake=stake):
+        if result.status == "no_picks":
+            st.caption(f"**{result.strategy_name}**: lock in picks below to start a parlay.")
+            continue
+
+        columns = st.columns(4)
+        columns[0].metric("Legs", f"{result.resolved_legs}/{result.leg_count} resolved")
+        columns[1].metric("Stake", f"${result.stake:.2f}")
+
+        if result.status == "won":
+            columns[2].metric("Payout", f"${result.potential_payout:.2f}")
+            columns[3].metric("Profit", f"${result.realized_profit:+.2f}")
+            st.success(f"{result.strategy_name}: WON")
+        elif result.status == "lost":
+            columns[2].metric("Payout", "$0.00")
+            columns[3].metric("Profit", f"${result.realized_profit:+.2f}")
+            st.error(f"{result.strategy_name}: LOST")
+        else:
+            columns[2].metric("Potential payout", f"${result.potential_payout:.2f}")
+            columns[3].metric("Potential profit", f"${result.potential_profit:+.2f}")
+            st.info(f"{result.strategy_name}: still live ({result.pending_legs} leg(s) pending)")
+
+
 def main() -> None:
     st.set_page_config(page_title="NBA Win Predictor", page_icon="🏀")
     st.title("🏀 Pick the winners")
@@ -391,9 +512,20 @@ def main() -> None:
         "it does."
     )
 
+    parlay_stake = st.number_input(
+        "💰 Simulated parlay stake ($)",
+        min_value=1.0,
+        value=FLAT_STAKE,
+        step=1.0,
+        help="Paper money only -- no real bet is ever placed.",
+    )
+
     picked_date = st.date_input("Slate date", value=DEFAULT_DEMO_DATE)
     season = season_for_date(pd.Timestamp(picked_date))
     st.caption(f"Season: {season}")
+
+    render_parlay_summary(picked_date, parlay_stake)
+    st.divider()
 
     try:
         schedule = cached_season_schedule(season)
@@ -416,6 +548,12 @@ def main() -> None:
 
     with st.expander("Live calibration monitor"):
         render_live_calibration()
+
+    with st.expander("Simulated betting tracker (paper only, not real money)"):
+        render_simulated_betting_tracker()
+
+    with st.expander("Simulated round robin (paper only, not real money)"):
+        render_round_robin_tracker(picked_date)
 
     with st.expander("Pick history"):
         picks = get_all_picks(PROJECT_ROOT)

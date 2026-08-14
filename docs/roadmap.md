@@ -81,6 +81,43 @@ leakage-safe **proxy** entirely from data already in the pipeline:
   validation did not carry over (ECE 0.0213 → 0.0214, essentially flat);
   log loss, Brier, and ROC-AUC all improved.
 
+## Live-season data refresh — complete
+
+The application layer's "computed" (upcoming-matchup) serving path reads
+each team's *current* rolling stats, Elo rating, and roster continuity
+from `data/processed/nba/features/*.parquet` -- static snapshots as of
+whenever the pipeline last ran. Nothing kept those current once a season
+actually starts. `pipelines/refresh_current_season.py` closes this:
+
+- Force re-ingests only the current season's team and player game logs
+  (`season_for_date()` on the given/current date decides which season);
+  past seasons stay cached, since they never change once ingested --
+  `ingest_season()`'s existing reuse-if-present behavior was already
+  correct for them, it just needed a caller that force-refreshes the one
+  season that *does* change.
+- Rebuilds the combined game-level dataset and the full Phase 5 feature
+  pipeline from the refreshed raw data -- fast, local, no meaningful cost
+  to reprocessing every season each time (~15 seconds end to end for all
+  11-12 seasons, verified against real data).
+- Deliberately stops before `modeling/data/split_dataset.py` and never
+  touches the frozen model artifact. Retraining stays a separate,
+  validated, rare decision (see the v1.1 note above), not something a
+  routine data refresh should ever trigger.
+- Before a season's first game, `LeagueGameLog` legitimately returns zero
+  rows for it; that's matched precisely and treated as a clean skip
+  ("nothing to refresh yet") rather than a crash -- verified for real
+  against the pre-season 2026-27 state. A different `ValueError` (an
+  actual data-integrity problem) still propagates rather than being
+  silently swallowed as the same case.
+- Verified live against both real states: the pre-season skip path, and
+  the full force-refresh-and-rebuild path against an already-completed
+  season (2024-25) -- deterministic, byte-for-byte consistent with the
+  data already on disk, no spurious diffs.
+
+Run periodically (daily is plenty) during a live season via
+`uv run python -m pipelines.refresh_current_season`. Still manual --
+nothing schedules this automatically yet (see known gaps).
+
 ## Application layer — complete
 
 Both pieces below are thin layers over the same two shared modules
@@ -92,7 +129,9 @@ neither duplicates the other's logic.
   game. Shows a stat comparison before you pick, tracks your picks vs.
   the model vs. reality in SQLite (`sql/picks_schema.sql`), and has a
   "Live calibration monitor" expander (`live_calibration_monitor.py`)
-  scoring real, resolved picks against the frozen test-set reference.
+  scoring real, resolved picks against the frozen test-set reference,
+  plus a "Simulated betting tracker" expander (`simulated_betting_tracker.py`)
+  -- see below.
 - **API** (`app/api/`) — `GET /predict` (one matchup) and `GET /slate`
   (a day's games), both backed by the frozen model. Run with
   `uv run uvicorn app.api.main:app --reload`.
@@ -114,6 +153,48 @@ picks (all `historical`; `computed` has 0), so it is correctly reporting
 first place real-world evidence for the untested "upcoming matchup" path
 (see the gap below) will ever show up, once the 2026-27 season starts and
 picks accumulate against it.
+
+## Simulated betting tracker — paper only, no real money
+
+`app/dashboard/simulated_betting_tracker.py` answers one question: if
+every resolved pick had been a flat $10 wager at a standard -110 American
+moneyline (a typical sportsbook vig, not a real market line), would
+following the model have come out ahead? Deliberately does not derive
+odds from the model's own predicted probability -- betting at your own
+stated confidence is tautologically break-even in expectation, which
+would say nothing about whether the model is actually any good. A fixed,
+realistic vig gives the result an actual bar to clear: -110 breaks even
+at a 52.38% hit rate.
+
+Nothing here touches a real sportsbook, account, or payment method --
+this is a backtest, not betting advice, and the dashboard says so
+explicitly. Below 10 resolved bets it reports the sample size honestly
+instead of a number. As of this writing, real usage shows both "bet the
+model" and "bet your own picks" at a 66.7% hit rate (24 resolved picks,
+user and model picks happened to coincide throughout), clearing the
+52.4% breakeven with room to spare -- interesting, but still a small
+sample.
+
+**Parlay mode**: the same module also simulates combining one day's picks
+into a single parlay -- every leg must win, and one resolved loss busts
+the whole bet immediately, even if other legs are still pending (matching
+how a real parlay actually works, not waiting for every leg to settle
+before declaring it dead). Uses the same fixed -110 vig per leg, compounded
+across legs. A "💰 Simulated parlay stake" input sits at the top of the
+dashboard, with the parlay result shown immediately below it, before the
+day's slate -- paper only, same as the flat-betting tracker.
+
+**Round robin mode**: splits one day's picks into every possible
+combination of a chosen size (2-leg by default, 3-leg optional) and scores
+each combination as its own independent mini-parlay with its own stake --
+one bad leg only kills the combinations that included it, not the whole
+round robin, a softer risk shape than a straight parlay across the same
+picks. Real data makes the contrast concrete: the Nov 5 slate's straight
+11-leg parlay was a total loss (one bad leg sinks 11-for-11), but the
+same picks as a 2-leg round robin (`C(11,2)` = 55 combos, $5 per combo)
+showed a net profit of $107.69 on the model's picks despite losing more
+combos (34) than it won (21) -- because the winning combos pay out more
+than 2x while losses only cost their own $5 stake.
 
 ## Robustness and calibration diagnostics — supplementary, not Phase 8
 
@@ -148,8 +229,12 @@ changes the selected model or its official test result:
 - `sql/` only has `picks_schema.sql` for the dashboard; no other use yet.
 - No CI job exercises the dashboard, the API, or the live NBA.com
   endpoints — by design, since those need network access CI shouldn't
-  depend on. Only the synthetic-fixture pytest suite (277 tests as of
+  depend on. Only the synthetic-fixture pytest suite (312 tests as of
   this writing) runs in CI.
+- The live-season refresh (above) is still a manual command, not scheduled
+  automatically. Nothing here provisions a cron job or similar to run it
+  daily during a season -- that's a deployment-environment concern rather
+  than something the codebase itself can guarantee.
 - No deployment story. Both the API and dashboard are meant to run
   locally; nothing here provisions hosting, TLS, or auth.
 - The 2026-27 season's schedule was published shortly after this was
