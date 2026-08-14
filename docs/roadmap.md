@@ -7,7 +7,7 @@ stand before picking the work back up. **If this file and the README ever
 disagree, this file wins** — update it whenever a phase or gap changes,
 in the same change that changes the code.
 
-Last updated: 2026-08-08.
+Last updated: 2026-08-13.
 
 ## Core prediction pipeline (Phases 0-8) — complete
 
@@ -24,11 +24,62 @@ Last updated: 2026-08-08.
 | 8 | One-time held-out test evaluation | `modeling/evaluation/run_final_evaluation.py` |
 
 **Selected model**: logistic regression on the compact feature set
-(including the Elo rating differential). Chosen on 2023-24 validation
-performance, before the test seasons were read. Frozen test result: log
-loss 0.5996, Brier 0.2067, ROC-AUC 0.7347, accuracy 0.6789. This decision
-is final — per `docs/project_spec.md` section 7 rule 8, the test seasons
-are not to be re-evaluated to inform any further modeling choice.
+(including the Elo rating differential and, since v1.1, the
+roster-continuity differential — see below). Chosen on 2023-24 validation
+performance, before the test seasons were read. Frozen test result (v1.1):
+log loss 0.5965, Brier 0.2054, ROC-AUC 0.7381, accuracy 0.6780, ECE 0.0214.
+This decision is final — per `docs/project_spec.md` section 7 rule 8, the
+test seasons are not to be re-evaluated to inform any further modeling
+choice. (v1's frozen result, superseded by the v1.1 re-evaluation
+documented below: log loss 0.5996, Brier 0.2067, ROC-AUC 0.7347, accuracy
+0.6789, ECE 0.0213.)
+
+## v1.1: roster-continuity feature (an injury-data proxy) — complete
+
+The "capped ceiling" gap below used to note that the model has no
+injury/lineup information, and that real historical injury-report data
+doesn't exist as a clean API (the NBA only publishes it as PDFs). Rather
+than accept an unaudited third-party scrape of those PDFs, this builds a
+leakage-safe **proxy** entirely from data already in the pipeline:
+
+- **New raw source**: `pipelines/ingestion/ingest_player_game_logs.py` —
+  player-level `LeagueGameLog` (mirrors the existing team-level ingestion
+  exactly), stored at `data/raw/nba/league_game_log/season=X/player_game_log.parquet`.
+- **New feature**: `pipelines/features/build_roster_continuity_features.py`
+  computes, per team-game, the ratio of a team's established top-3 core
+  players' *actual* combined minutes to their *expected* combined minutes
+  (a shift(1)-safe rolling average of each player's own recent minutes,
+  carried forward through games they don't play so a genuine absence is
+  detectable — ranking only among players present in a game would make an
+  absence undetectable by construction). That per-game ratio is itself
+  shift(1)-safe rolled into the final pregame feature,
+  `ROLLING_CORE_CONTINUITY`, using the exact same `shifted_rolling_mean`
+  helper every other rolling feature in this project uses. Sanity check on
+  real data: the lowest-continuity games cluster at each season's final
+  week — exactly when teams rest healthy stars for meaningless games, a
+  well-known real pattern, not an artifact.
+- **Serving layer**: `modeling/serving/matchup_features.py` computes this
+  feature for upcoming ("computed") matchups the same placeholder-and-reroll
+  way it already does for the rolling win/points features, reusing
+  `build_roster_continuity_features.py`'s own `compute_rolling_continuity()`
+  rather than a second implementation.
+- **Validation-only decision**: adding `ROLLING_CORE_CONTINUITY_DIFF` to
+  `COMPACT_FEATURE_COLUMNS` was tested on train/validation only, before
+  touching test. It improved log loss, Brier score, ROC-AUC, and accuracy
+  on validation, with a small calibration-error regression there (0.0259 →
+  0.0306). Adopted anyway since log loss (the project's designated primary
+  ranking metric) improved along with three of the four other metrics, and
+  logistic regression still beat CatBoost on every validation metric with
+  the new feature included (it hadn't, on ROC-AUC, before).
+- **Phase 8 re-run**: per `docs/project_spec.md` section 7 rule 8, the test
+  seasons may not be re-evaluated to *choose* between models or features —
+  and no such choice was made using test data. The decision to adopt the
+  feature was made entirely on validation; Phase 8 was then re-run exactly
+  once, as a new frozen iteration, to answer "how good is this new frozen
+  model" — the same question it answered for v1, not a re-opened
+  comparison. On the actual test set, the calibration regression seen on
+  validation did not carry over (ECE 0.0213 → 0.0214, essentially flat);
+  log loss, Brier, and ROC-AUC all improved.
 
 ## Application layer — complete
 
@@ -75,8 +126,8 @@ changes the selected model or its official test result:
   search) forward across 8 expanding-window season cutoffs (2018-19
   through 2025-26), instead of the single 2024-25/2025-26 cutoff Phase 8
   uses. Finding: performance is **not** stable across cutoffs — accuracy
-  ranges from 0.621 (2020-21 cutoff) to 0.682 (2025-26 cutoff), log loss
-  from 0.596 to 0.647. The officially reported Phase 8 result sits near
+  ranges from 0.620 (2020-21 cutoff) to 0.680 (2025-26 cutoff), log loss
+  from 0.594 to 0.646. The officially reported Phase 8 result sits near
   the *favorable* end of that spread, not the middle, which is useful
   context missing from the single-number headline. (As a sanity check,
   this backtest's own 2024-25 and 2025-26 folds bracket the official
@@ -85,28 +136,36 @@ changes the selected model or its official test result:
 - **`modeling/evaluation/run_calibration_by_segment.py`** — re-slices the
   same frozen test-set predictions Phase 8 already scored once, broken
   down by season phase and rest status. Finding: back-to-back games have
-  more than double the calibration error of rested games (ECE 0.0395 vs.
-  0.0180), and late-season games (51+ games played) have the best log
-  loss/Brier score but the *worst* calibration error (0.0722) — the model
-  is more accurate late in the season but its stated probabilities are
-  less trustworthy at face value then, which the single test-set-wide ECE
-  in the README doesn't surface.
+  markedly higher calibration error than rested games (ECE 0.0390 vs.
+  0.0233 — roughly 1.7x), and late-season games (51+ games played) have
+  the best log loss/Brier score but the *worst* calibration error (0.0485)
+  — the model is more accurate late in the season but its stated
+  probabilities are less trustworthy at face value then, which the single
+  test-set-wide ECE in the README doesn't surface.
 
 ## Known gaps (honest, as of this writing)
 
 - `sql/` only has `picks_schema.sql` for the dashboard; no other use yet.
 - No CI job exercises the dashboard, the API, or the live NBA.com
   endpoints — by design, since those need network access CI shouldn't
-  depend on. Only the synthetic-fixture pytest suite (249 tests as of
+  depend on. Only the synthetic-fixture pytest suite (277 tests as of
   this writing) runs in CI.
 - No deployment story. Both the API and dashboard are meant to run
   locally; nothing here provisions hosting, TLS, or auth.
-- The 2026-27 season hasn't started, so the dashboard/API's "upcoming
-  matchup" code path (`feature_source: "computed"` in
-  `modeling/serving/matchup_features.py`) has only been exercised against
-  synthetic test fixtures, never a real future game. It should work
-  unchanged once real games exist, but that's an expectation, not yet an
-  observation.
+- The 2026-27 season's schedule was published shortly after this was
+  written, which retired one gap and surfaced another. The "upcoming
+  matchup" code path (`feature_source: "computed"`) was exercised against
+  a real future game for the first time (2026-10-20, Boston Celtics @
+  Detroit Pistons) and worked end to end: correct blank season stats,
+  correctly carried-over Elo ratings, a real prediction, and correct
+  `actual_winner: pending`. Getting there required a real fix, not zero
+  changes: `fetch_schedule.py` crashed on the initial schedule pull,
+  because a season published before the Emirates NBA Cup knockout bracket
+  is set includes 7 placeholder games with `teamId` 0 on both sides
+  ("TBD") -- treated as incomplete data to skip now, not corrupt data to
+  raise on, matching how a missing team was already handled. This is a
+  good reminder that "should work unchanged" claims about an untested path
+  are worth verifying the moment real data exists, not just trusting.
 - No cross-validated variance estimate exists for the frozen Phase 8
   result itself (only for the supplementary walk-forward backtest above,
   which necessarily uses different, larger training windows per fold than

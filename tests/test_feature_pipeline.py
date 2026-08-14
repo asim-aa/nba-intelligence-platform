@@ -40,6 +40,11 @@ def test_run_feature_pipeline_writes_summary_after_success(
         seasons=1,
     )
 
+    roster_continuity_summary = SimpleNamespace(
+        output_team_game_rows=4,
+        seasons=1,
+    )
+
     pregame_summary = SimpleNamespace(
         source_team_rows=4,
         output_feature_rows=4,
@@ -51,7 +56,7 @@ def test_run_feature_pipeline_writes_summary_after_success(
         source_team_feature_rows=4,
         output_model_rows=2,
         seasons=1,
-        numeric_feature_count=44,
+        numeric_feature_count=47,
         categorical_feature_count=2,
     )
 
@@ -65,6 +70,12 @@ def test_run_feature_pipeline_writes_summary_after_success(
         pipeline_module,
         "build_team_elo_ratings_dataset",
         lambda project_root: elo_summary,
+    )
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "build_roster_continuity_dataset",
+        lambda project_root: roster_continuity_summary,
     )
 
     monkeypatch.setattr(
@@ -88,9 +99,10 @@ def test_run_feature_pipeline_writes_summary_after_success(
     assert summary.source_game_rows == 2
     assert summary.team_history_rows == 4
     assert summary.elo_rating_rows == 4
+    assert summary.roster_continuity_rows == 4
     assert summary.pregame_team_feature_rows == 4
     assert summary.modeling_rows == 2
-    assert summary.numeric_feature_count == 44
+    assert summary.numeric_feature_count == 47
     assert summary.categorical_feature_count == 2
 
     summary_path = feature_pipeline_summary_path(tmp_path)
@@ -115,6 +127,11 @@ def test_run_feature_pipeline_does_not_write_summary_after_failure(
         seasons=1,
     )
 
+    roster_continuity_summary = SimpleNamespace(
+        output_team_game_rows=4,
+        seasons=1,
+    )
+
     pregame_summary = SimpleNamespace(
         source_team_rows=4,
         output_feature_rows=4,
@@ -131,6 +148,12 @@ def test_run_feature_pipeline_does_not_write_summary_after_failure(
         pipeline_module,
         "build_team_elo_ratings_dataset",
         lambda project_root: elo_summary,
+    )
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "build_roster_continuity_dataset",
+        lambda project_root: roster_continuity_summary,
     )
 
     monkeypatch.setattr(

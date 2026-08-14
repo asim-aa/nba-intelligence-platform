@@ -166,6 +166,107 @@ def download_team_game_log(
     ) from last_error
 
 
+PLAYER_REQUIRED_COLUMNS: Final[frozenset[str]] = frozenset(
+    {
+        "SEASON_ID",
+        "PLAYER_ID",
+        "PLAYER_NAME",
+        "TEAM_ID",
+        "TEAM_ABBREVIATION",
+        "GAME_ID",
+        "GAME_DATE",
+        "MIN",
+    }
+)
+
+
+@dataclass(frozen=True)
+class PlayerLogAuditSummary:
+    """Compact validation summary for one season's player game log."""
+
+    season: str
+    rows: int
+    games: int
+    players: int
+    duplicate_player_game_rows: int
+
+
+def summarize_player_log(frame: pd.DataFrame, season: str) -> PlayerLogAuditSummary:
+    """Validate schema and player-game uniqueness for one season's player log.
+
+    Unlike the team log (exactly two rows per game), a player log has a
+    variable number of rows per game -- one per player who appeared -- so
+    only uniqueness and schema are checked here, not row-pairing semantics.
+    """
+
+    missing = PLAYER_REQUIRED_COLUMNS.difference(frame.columns)
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise ValueError(f"NBA source is missing required columns: {missing_text}")
+
+    if frame.empty:
+        raise ValueError("NBA source returned an empty table")
+
+    duplicate_count = int(frame.duplicated(subset=["GAME_ID", "PLAYER_ID"]).sum())
+    if duplicate_count:
+        raise ValueError(f"Found {duplicate_count} duplicate GAME_ID/PLAYER_ID rows")
+
+    return PlayerLogAuditSummary(
+        season=season,
+        rows=len(frame),
+        games=int(frame["GAME_ID"].nunique()),
+        players=int(frame["PLAYER_ID"].nunique()),
+        duplicate_player_game_rows=duplicate_count,
+    )
+
+
+def download_player_game_log(
+    season: str,
+    timeout: int = 30,
+    max_attempts: int = 3,
+    backoff_seconds: float = 1.0,
+) -> pd.DataFrame:
+    """Fetch regular-season player game logs with bounded exponential-backoff retries.
+
+    Same endpoint and retry shape as download_team_game_log, with
+    player_or_team_abbreviation="P" instead of "T" -- one request returns
+    every player's game log for the whole season.
+    """
+    from nba_api.stats.endpoints import leaguegamelog
+
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+    if backoff_seconds < 0:
+        raise ValueError("backoff_seconds cannot be negative")
+
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            endpoint = leaguegamelog.LeagueGameLog(
+                counter=0,
+                direction="DESC",
+                league_id="00",
+                player_or_team_abbreviation="P",
+                season=season,
+                season_type_all_star="Regular Season",
+                sorter="DATE",
+                timeout=timeout,
+            )
+            frames = endpoint.get_data_frames()
+            if not frames:
+                raise ValueError("LeagueGameLog returned no result sets")
+            return frames[0]
+        except Exception as error:
+            last_error = error
+            if attempt == max_attempts:
+                break
+            time.sleep(backoff_seconds * (2 ** (attempt - 1)))
+
+    raise RuntimeError(
+        f"LeagueGameLog (player mode) failed after {max_attempts} attempts for season {season}"
+    ) from last_error
+
+
 def write_outputs(
     frame: pd.DataFrame,
     summary: AuditSummary,

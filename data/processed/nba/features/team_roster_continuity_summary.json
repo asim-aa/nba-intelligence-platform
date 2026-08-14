@@ -1,0 +1,10 @@
+{
+  "source_player_rows": 281164,
+  "output_team_game_rows": 26418,
+  "unique_teams": 30,
+  "unique_players": 1554,
+  "seasons": 11,
+  "rows_with_missing_continuity": 660,
+  "first_game_date": "2015-10-27",
+  "last_game_date": "2026-04-12"
+}

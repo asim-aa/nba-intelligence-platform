@@ -9,7 +9,9 @@ This module:
 2. Merges in each team's pregame Elo rating (a separate, cross-season
    source -- see build_team_elo_ratings.py -- since it is computed by a
    sequential simulation rather than the groupby/shift window functions
-   used for the other pregame features).
+   used for the other pregame features) and its roster-continuity feature
+   (see build_roster_continuity_features.py -- a separate source built
+   from player game logs rather than team game logs).
 3. Joins the two perspectives into one matchup row.
 4. Attaches the home_win target from the completed game dataset.
 5. Creates home-minus-away comparison features.
@@ -92,9 +94,28 @@ ELO_MERGE_KEYS: Final[tuple[str, ...]] = (
     "TEAM_ID",
 )
 
+# Columns required from team_roster_continuity.parquet.
+REQUIRED_ROSTER_CONTINUITY_COLUMNS: Final[frozenset[str]] = frozenset(
+    {
+        "SEASON",
+        "SEASON_ID",
+        "GAME_ID",
+        "GAME_DATE",
+        "TEAM_ID",
+        "ROLLING_CORE_CONTINUITY",
+    }
+)
+
+ROSTER_CONTINUITY_MERGE_KEYS: Final[tuple[str, ...]] = ELO_MERGE_KEYS
+
 # These are the actual pregame measurements copied for both teams. ELO_RATING
 # is never missing (see build_team_elo_ratings.py), unlike the rest of these
 # columns, which are NaN for a team's first game of a season.
+# ROLLING_CORE_CONTINUITY (see build_roster_continuity_features.py) can stay
+# NaN for a few games longer than the others, until three players have each
+# built up their own rolling-minutes history -- not strictly tied to
+# PRIOR_GAMES_PLAYED==0 the way the rest of HISTORICAL_VALUE_COLUMNS is, so
+# it is deliberately left out of that stricter cold-start contract below.
 SIDE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "PRIOR_GAMES_PLAYED",
     "DAYS_REST",
@@ -109,6 +130,7 @@ SIDE_FEATURE_COLUMNS: Final[tuple[str, ...]] = (
     "ROLLING_5_POINT_DIFFERENTIAL",
     "ROLLING_10_POINT_DIFFERENTIAL",
     "ELO_RATING",
+    "ROLLING_CORE_CONTINUITY",
 )
 
 # Every feature in this collection receives a home-minus-away version.
@@ -250,6 +272,14 @@ def elo_ratings_input_path(project_root: Path) -> Path:
     return project_root / "data" / "processed" / "nba" / "features" / "team_elo_ratings.parquet"
 
 
+def roster_continuity_input_path(project_root: Path) -> Path:
+    """Return the roster-continuity feature path (see build_roster_continuity_features.py)."""
+
+    return (
+        project_root / "data" / "processed" / "nba" / "features" / "team_roster_continuity.parquet"
+    )
+
+
 def modeling_dataset_output_path(project_root: Path) -> Path:
     """Return the final pregame modeling-dataset path."""
 
@@ -286,16 +316,21 @@ def prepare_source_frames(
     games: pd.DataFrame,
     team_features: pd.DataFrame,
     elo_ratings: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    roster_continuity: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Normalize identifiers and date types before validation and joining."""
 
     prepared_games = games.copy()
     prepared_features = team_features.copy()
     prepared_elo = elo_ratings.copy()
+    prepared_roster_continuity = roster_continuity.copy()
 
     prepared_games["GAME_ID"] = prepared_games["GAME_ID"].map(normalize_game_id)
     prepared_features["GAME_ID"] = prepared_features["GAME_ID"].map(normalize_game_id)
     prepared_elo["GAME_ID"] = prepared_elo["GAME_ID"].map(normalize_game_id)
+    prepared_roster_continuity["GAME_ID"] = prepared_roster_continuity["GAME_ID"].map(
+        normalize_game_id
+    )
 
     prepared_games["GAME_DATE"] = pd.to_datetime(
         prepared_games["GAME_DATE"],
@@ -309,12 +344,17 @@ def prepare_source_frames(
         prepared_elo["GAME_DATE"],
         errors="raise",
     )
+    prepared_roster_continuity["GAME_DATE"] = pd.to_datetime(
+        prepared_roster_continuity["GAME_DATE"],
+        errors="raise",
+    )
 
     # SEASON_ID occasionally arrives as an integer from Parquet inference.
     # Converting all sources to strings ensures stable merge behavior.
     prepared_games["SEASON_ID"] = prepared_games["SEASON_ID"].astype(str)
     prepared_features["SEASON_ID"] = prepared_features["SEASON_ID"].astype(str)
     prepared_elo["SEASON_ID"] = prepared_elo["SEASON_ID"].astype(str)
+    prepared_roster_continuity["SEASON_ID"] = prepared_roster_continuity["SEASON_ID"].astype(str)
 
     team_id_columns = (
         "HOME_TEAM_ID",
@@ -333,8 +373,9 @@ def prepare_source_frames(
         prepared_features[column] = prepared_features[column].astype("int64")
 
     prepared_elo["TEAM_ID"] = prepared_elo["TEAM_ID"].astype("int64")
+    prepared_roster_continuity["TEAM_ID"] = prepared_roster_continuity["TEAM_ID"].astype("int64")
 
-    return prepared_games, prepared_features, prepared_elo
+    return prepared_games, prepared_features, prepared_elo, prepared_roster_continuity
 
 
 def validate_elo_input(
@@ -376,6 +417,53 @@ def validate_elo_input(
         )
 
 
+def validate_roster_continuity_input(
+    roster_continuity: pd.DataFrame,
+    team_features: pd.DataFrame,
+) -> None:
+    """Validate roster continuity before merging it into the pregame features.
+
+    Unlike Elo, ROLLING_CORE_CONTINUITY is legitimately allowed to be NaN
+    (a team's first few games each season, before three players have their
+    own rolling-minutes history), so this checks the merge keys line up
+    without asserting the value itself is always present.
+    """
+
+    missing_columns = REQUIRED_ROSTER_CONTINUITY_COLUMNS - set(roster_continuity.columns)
+
+    if missing_columns:
+        raise ValueError(
+            f"Roster continuity is missing required columns: {sorted(missing_columns)}"
+        )
+
+    if roster_continuity.empty:
+        raise ValueError("Roster continuity cannot be empty")
+
+    duplicate_rows = int(
+        roster_continuity.duplicated(subset=list(ROSTER_CONTINUITY_MERGE_KEYS)).sum()
+    )
+
+    if duplicate_rows:
+        raise ValueError(f"Roster continuity contains {duplicate_rows} duplicate team-game rows")
+
+    roster_keys = set(
+        roster_continuity[list(ROSTER_CONTINUITY_MERGE_KEYS)].itertuples(index=False, name=None)
+    )
+    feature_keys = set(
+        team_features[list(ROSTER_CONTINUITY_MERGE_KEYS)].itertuples(index=False, name=None)
+    )
+
+    if roster_keys != feature_keys:
+        missing_roster = sorted(feature_keys - roster_keys)[:10]
+        unexpected_roster = sorted(roster_keys - feature_keys)[:10]
+
+        raise ValueError(
+            "Roster continuity and team-feature keys do not match. "
+            f"Missing roster continuity for: {missing_roster}; "
+            f"unexpected roster continuity for: {unexpected_roster}"
+        )
+
+
 def merge_elo_into_team_features(
     team_features: pd.DataFrame,
     elo_ratings: pd.DataFrame,
@@ -385,6 +473,20 @@ def merge_elo_into_team_features(
     return team_features.merge(
         elo_ratings[[*ELO_MERGE_KEYS, "ELO_RATING"]],
         on=list(ELO_MERGE_KEYS),
+        how="inner",
+        validate="one_to_one",
+    )
+
+
+def merge_roster_continuity_into_team_features(
+    team_features: pd.DataFrame,
+    roster_continuity: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach each team-game row's pregame roster-continuity feature."""
+
+    return team_features.merge(
+        roster_continuity[[*ROSTER_CONTINUITY_MERGE_KEYS, "ROLLING_CORE_CONTINUITY"]],
+        on=list(ROSTER_CONTINUITY_MERGE_KEYS),
         how="inner",
         validate="one_to_one",
     )
@@ -730,13 +832,19 @@ def build_modeling_dataset(
     games: pd.DataFrame,
     team_features: pd.DataFrame,
     elo_ratings: pd.DataFrame,
+    roster_continuity: pd.DataFrame,
 ) -> tuple[pd.DataFrame, ModelingDatasetSummary]:
-    """Join two pregame team perspectives, plus Elo, into one row per game."""
+    """Join two pregame team perspectives, plus Elo and roster continuity,
+    into one row per game.
+    """
 
-    prepared_games, prepared_features, prepared_elo = prepare_source_frames(
-        games=games,
-        team_features=team_features,
-        elo_ratings=elo_ratings,
+    prepared_games, prepared_features, prepared_elo, prepared_roster_continuity = (
+        prepare_source_frames(
+            games=games,
+            team_features=team_features,
+            elo_ratings=elo_ratings,
+            roster_continuity=roster_continuity,
+        )
     )
 
     validate_elo_input(
@@ -747,6 +855,16 @@ def build_modeling_dataset(
     prepared_features = merge_elo_into_team_features(
         team_features=prepared_features,
         elo_ratings=prepared_elo,
+    )
+
+    validate_roster_continuity_input(
+        roster_continuity=prepared_roster_continuity,
+        team_features=prepared_features,
+    )
+
+    prepared_features = merge_roster_continuity_into_team_features(
+        team_features=prepared_features,
+        roster_continuity=prepared_roster_continuity,
     )
 
     validate_source_datasets(
@@ -904,6 +1022,7 @@ def build_modeling_dataset_from_files(
     game_path = games_input_path(project_root)
     team_feature_path = team_features_input_path(project_root)
     elo_path = elo_ratings_input_path(project_root)
+    roster_continuity_path = roster_continuity_input_path(project_root)
 
     if not game_path.exists():
         raise FileNotFoundError(f"Completed game dataset does not exist: {game_path}")
@@ -914,14 +1033,21 @@ def build_modeling_dataset_from_files(
     if not elo_path.exists():
         raise FileNotFoundError(f"Elo rating dataset does not exist: {elo_path}")
 
+    if not roster_continuity_path.exists():
+        raise FileNotFoundError(
+            f"Roster continuity dataset does not exist: {roster_continuity_path}"
+        )
+
     games = pd.read_parquet(game_path)
     team_features = pd.read_parquet(team_feature_path)
     elo_ratings = pd.read_parquet(elo_path)
+    roster_continuity = pd.read_parquet(roster_continuity_path)
 
     modeling, summary = build_modeling_dataset(
         games=games,
         team_features=team_features,
         elo_ratings=elo_ratings,
+        roster_continuity=roster_continuity,
     )
 
     dataset_path, summary_path, manifest_path = write_modeling_dataset_outputs(

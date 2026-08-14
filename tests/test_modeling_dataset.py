@@ -21,6 +21,7 @@ from pipelines.features.build_modeling_dataset import (
     modeling_dataset_summary_path,
     validate_elo_input,
     validate_modeling_dataset,
+    validate_roster_continuity_input,
     validate_source_datasets,
     write_modeling_dataset_outputs,
 )
@@ -216,6 +217,53 @@ def make_elo_ratings() -> pd.DataFrame:
     )
 
 
+def make_roster_continuity() -> pd.DataFrame:
+    """Create roster continuity matching every team-game row in make_team_features().
+
+    Unlike Elo, ROLLING_CORE_CONTINUITY has a genuine cold-start gap: a
+    team's first game of the season has no established three-player core
+    yet, so it stays NaN there, exactly like the rolling win/points
+    features (not like Elo, which is always defined).
+    """
+
+    return pd.DataFrame(
+        [
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400001",
+                "GAME_DATE": "2024-10-22",
+                "TEAM_ID": 1610612747,
+                "ROLLING_CORE_CONTINUITY": None,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400001",
+                "GAME_DATE": "2024-10-22",
+                "TEAM_ID": 1610612738,
+                "ROLLING_CORE_CONTINUITY": None,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400002",
+                "GAME_DATE": "2024-10-24",
+                "TEAM_ID": 1610612738,
+                "ROLLING_CORE_CONTINUITY": 0.75,
+            },
+            {
+                "SEASON": "2024-25",
+                "SEASON_ID": "22024",
+                "GAME_ID": "0022400002",
+                "GAME_DATE": "2024-10-24",
+                "TEAM_ID": 1610612747,
+                "ROLLING_CORE_CONTINUITY": 0.95,
+            },
+        ]
+    )
+
+
 def test_validate_source_datasets_rejects_missing_columns() -> None:
     """The join should fail when a required feature column is absent."""
 
@@ -279,6 +327,48 @@ def test_validate_elo_input_rejects_key_mismatch() -> None:
         validate_elo_input(elo_ratings=elo, team_features=make_team_features())
 
 
+def test_validate_roster_continuity_input_rejects_missing_columns() -> None:
+    roster_continuity = make_roster_continuity().drop(columns=["ROLLING_CORE_CONTINUITY"])
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        validate_roster_continuity_input(
+            roster_continuity=roster_continuity, team_features=make_team_features()
+        )
+
+
+def test_validate_roster_continuity_input_rejects_duplicate_rows() -> None:
+    roster_continuity = make_roster_continuity()
+    roster_continuity = pd.concat(
+        [roster_continuity, roster_continuity.iloc[[0]]], ignore_index=True
+    )
+
+    with pytest.raises(ValueError, match="duplicate team-game rows"):
+        validate_roster_continuity_input(
+            roster_continuity=roster_continuity, team_features=make_team_features()
+        )
+
+
+def test_validate_roster_continuity_input_rejects_key_mismatch() -> None:
+    roster_continuity = make_roster_continuity()
+    roster_continuity.loc[0, "TEAM_ID"] = 999
+
+    with pytest.raises(ValueError, match="keys do not match"):
+        validate_roster_continuity_input(
+            roster_continuity=roster_continuity, team_features=make_team_features()
+        )
+
+
+def test_validate_roster_continuity_input_allows_missing_values() -> None:
+    """Unlike Elo, a NaN continuity value (cold start) must not raise."""
+
+    roster_continuity = make_roster_continuity()
+    assert roster_continuity["ROLLING_CORE_CONTINUITY"].isna().any()
+
+    validate_roster_continuity_input(
+        roster_continuity=roster_continuity, team_features=make_team_features()
+    )
+
+
 def test_build_modeling_dataset_creates_one_row_per_game() -> None:
     """Two team perspectives should become one matchup row."""
 
@@ -286,6 +376,7 @@ def test_build_modeling_dataset_creates_one_row_per_game() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     assert len(modeling) == 2
@@ -306,6 +397,7 @@ def test_build_modeling_dataset_assigns_home_and_away_features() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     second_game = modeling.loc[modeling["GAME_ID"] == "0022400002"].iloc[0]
@@ -322,6 +414,9 @@ def test_build_modeling_dataset_assigns_home_and_away_features() -> None:
     assert second_game["AWAY_ROLLING_5_POINT_DIFFERENTIAL"] == (pytest.approx(10.0))
     assert second_game["AWAY_ELO_RATING"] == pytest.approx(1520.0)
 
+    assert second_game["HOME_ROLLING_CORE_CONTINUITY"] == pytest.approx(0.75)
+    assert second_game["AWAY_ROLLING_CORE_CONTINUITY"] == pytest.approx(0.95)
+
 
 def test_build_modeling_dataset_calculates_differences() -> None:
     """Difference features should always be home minus away."""
@@ -330,6 +425,7 @@ def test_build_modeling_dataset_calculates_differences() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     second_game = modeling.loc[modeling["GAME_ID"] == "0022400002"].iloc[0]
@@ -340,6 +436,7 @@ def test_build_modeling_dataset_calculates_differences() -> None:
     assert second_game["ROLLING_5_POINT_DIFFERENTIAL_DIFF"] == (pytest.approx(-20.0))
     assert second_game["DAYS_REST_DIFF"] == pytest.approx(0.0)
     assert second_game["ELO_RATING_DIFF"] == pytest.approx(-40.0)
+    assert second_game["ROLLING_CORE_CONTINUITY_DIFF"] == pytest.approx(0.75 - 0.95)
 
 
 def test_build_modeling_dataset_elo_has_no_cold_start_gap() -> None:
@@ -349,6 +446,7 @@ def test_build_modeling_dataset_elo_has_no_cold_start_gap() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     first_game = modeling.loc[modeling["GAME_ID"] == "0022400001"].iloc[0]
@@ -359,6 +457,25 @@ def test_build_modeling_dataset_elo_has_no_cold_start_gap() -> None:
     assert first_game["ELO_RATING_DIFF"] == pytest.approx(0.0)
 
 
+def test_build_modeling_dataset_roster_continuity_has_cold_start_gap() -> None:
+    """Unlike Elo, roster continuity IS missing on a team's first game --
+    there is no established three-player core to compare against yet.
+    """
+
+    modeling, _ = build_modeling_dataset(
+        games=make_games(),
+        team_features=make_team_features(),
+        elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
+    )
+
+    first_game = modeling.loc[modeling["GAME_ID"] == "0022400001"].iloc[0]
+
+    assert pd.isna(first_game["HOME_ROLLING_CORE_CONTINUITY"])
+    assert pd.isna(first_game["AWAY_ROLLING_CORE_CONTINUITY"])
+    assert pd.isna(first_game["ROLLING_CORE_CONTINUITY_DIFF"])
+
+
 def test_build_modeling_dataset_creates_history_flags() -> None:
     """Cold-start flags should reflect available prior games."""
 
@@ -366,6 +483,7 @@ def test_build_modeling_dataset_creates_history_flags() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     first_game = modeling.loc[modeling["GAME_ID"] == "0022400001"].iloc[0]
@@ -402,6 +520,7 @@ def test_build_modeling_dataset_rejects_opponent_mismatch() -> None:
             games=make_games(),
             team_features=features,
             elo_ratings=make_elo_ratings(),
+            roster_continuity=make_roster_continuity(),
         )
 
 
@@ -412,6 +531,7 @@ def test_modeling_dataset_contains_no_same_game_outcomes() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     assert LEAKED_OUTCOME_COLUMNS.isdisjoint(modeling.columns)
@@ -425,6 +545,7 @@ def test_validate_modeling_dataset_rejects_tampered_difference() -> None:
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     modeling.loc[1, "SEASON_WIN_PCT_DIFF"] = 99.0
@@ -466,6 +587,7 @@ def test_write_modeling_dataset_outputs_creates_all_files(
         games=make_games(),
         team_features=make_team_features(),
         elo_ratings=make_elo_ratings(),
+        roster_continuity=make_roster_continuity(),
     )
 
     dataset_path, summary_path, manifest_path = write_modeling_dataset_outputs(
@@ -486,7 +608,7 @@ def test_write_modeling_dataset_outputs_creates_all_files(
     summary_text = summary_path.read_text(encoding="utf-8")
 
     assert '"output_model_rows": 2' in summary_text
-    assert '"numeric_feature_count": 44' in summary_text
+    assert '"numeric_feature_count": 47' in summary_text
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 

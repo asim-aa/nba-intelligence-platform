@@ -15,6 +15,9 @@ from pipelines.features.build_modeling_dataset import (
     NUMERIC_FEATURE_COLUMNS,
     modeling_dataset_output_path,
 )
+from pipelines.features.build_roster_continuity_features import (
+    roster_continuity_output_path,
+)
 from pipelines.features.build_team_elo_ratings import (
     INITIAL_RATING,
     carried_rating,
@@ -187,6 +190,7 @@ def test_build_computed_matchup_row_produces_expected_diffs() -> None:
         "ROLLING_5_POINT_DIFFERENTIAL": 10.0,
         "ROLLING_10_POINT_DIFFERENTIAL": 4.0,
         "ELO_RATING": 1600.0,
+        "ROLLING_CORE_CONTINUITY": 0.9,
     }
     away_state = {
         "PRIOR_GAMES_PLAYED": 10,
@@ -202,6 +206,7 @@ def test_build_computed_matchup_row_produces_expected_diffs() -> None:
         "ROLLING_5_POINT_DIFFERENTIAL": -5.0,
         "ROLLING_10_POINT_DIFFERENTIAL": -3.0,
         "ELO_RATING": 1500.0,
+        "ROLLING_CORE_CONTINUITY": 0.6,
     }
 
     row = build_computed_matchup_row(
@@ -215,6 +220,7 @@ def test_build_computed_matchup_row_produces_expected_diffs() -> None:
     result = row.iloc[0]
     assert result["ELO_RATING_DIFF"] == pytest.approx(100.0)
     assert result["SEASON_WIN_PCT_DIFF"] == pytest.approx(0.3)
+    assert result["ROLLING_CORE_CONTINUITY_DIFF"] == pytest.approx(0.3)
     assert result["HOME_TEAM_ID"] == TEAM_A
     assert result["AWAY_TEAM_ID"] == TEAM_B
 
@@ -255,6 +261,32 @@ def write_minimal_dashboard_fixtures(project_root: Path) -> None:
     elo_path = elo_ratings_output_path(project_root)
     elo_path.parent.mkdir(parents=True, exist_ok=True)
     elo_ratings.to_parquet(elo_path, index=False)
+
+    roster_continuity = pd.DataFrame(
+        [
+            {
+                "SEASON": "2025-26",
+                "SEASON_ID": "22025",
+                "GAME_ID": "0022500001",
+                "GAME_DATE": pd.Timestamp("2025-10-24"),
+                "TEAM_ID": TEAM_A,
+                "ROLLING_CORE_CONTINUITY": 0.85,
+                "CORE_MINUTES_REALIZED_RATIO": 0.9,
+            },
+            {
+                "SEASON": "2025-26",
+                "SEASON_ID": "22025",
+                "GAME_ID": "0022500002",
+                "GAME_DATE": pd.Timestamp("2025-10-25"),
+                "TEAM_ID": TEAM_B,
+                "ROLLING_CORE_CONTINUITY": 0.80,
+                "CORE_MINUTES_REALIZED_RATIO": 0.7,
+            },
+        ]
+    )
+    roster_continuity_path = roster_continuity_output_path(project_root)
+    roster_continuity_path.parent.mkdir(parents=True, exist_ok=True)
+    roster_continuity.to_parquet(roster_continuity_path, index=False)
 
     modeling_row = {
         "SEASON": "2025-26",

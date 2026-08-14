@@ -5,8 +5,11 @@ This orchestration module rebuilds every Phase 5 artifact in dependency order:
 1. Convert game rows into chronological team history.
 2. Simulate cross-season Elo ratings (independent of team history; both
    read the Phase 4 game dataset directly).
-3. Build shifted, leakage-safe pregame team features.
-4. Join home, away, and Elo features into one modeling row per game.
+3. Build the roster-continuity feature (independent of the above; reads
+   raw player game logs directly -- see build_roster_continuity_features.py).
+4. Build shifted, leakage-safe pregame team features.
+5. Join home, away, Elo, and roster-continuity features into one modeling
+   row per game.
 
 The final output is ready for chronological splitting and baseline modeling.
 """
@@ -27,6 +30,10 @@ from pipelines.features.build_pregame_team_features import (
     PregameFeatureSummary,
     build_pregame_team_feature_dataset,
 )
+from pipelines.features.build_roster_continuity_features import (
+    RosterContinuitySummary,
+    build_roster_continuity_dataset,
+)
 from pipelines.features.build_team_elo_ratings import (
     EloRatingSummary,
     build_team_elo_ratings_dataset,
@@ -44,6 +51,7 @@ class FeaturePipelineSummary:
     source_game_rows: int
     team_history_rows: int
     elo_rating_rows: int
+    roster_continuity_rows: int
     pregame_team_feature_rows: int
     modeling_rows: int
     seasons: int
@@ -63,6 +71,7 @@ def feature_pipeline_summary_path(project_root: Path) -> Path:
 def validate_stage_counts(
     team_history_summary: TeamHistorySummary,
     elo_summary: EloRatingSummary,
+    roster_continuity_summary: RosterContinuitySummary,
     pregame_summary: PregameFeatureSummary,
     modeling_summary: ModelingDatasetSummary,
 ) -> None:
@@ -75,6 +84,9 @@ def validate_stage_counts(
 
     if elo_summary.output_team_rows != expected_team_rows:
         raise ValueError("Elo rating row count is inconsistent with source games")
+
+    if roster_continuity_summary.output_team_game_rows != expected_team_rows:
+        raise ValueError("Roster continuity row count is inconsistent with source games")
 
     if pregame_summary.source_team_rows != expected_team_rows:
         raise ValueError("Pregame feature input count is inconsistent")
@@ -93,6 +105,9 @@ def validate_stage_counts(
 
     if elo_summary.seasons != pregame_summary.seasons:
         raise ValueError("Elo rating and pregame feature season counts differ")
+
+    if roster_continuity_summary.seasons != pregame_summary.seasons:
+        raise ValueError("Roster continuity and pregame feature season counts differ")
 
     if pregame_summary.seasons != modeling_summary.seasons:
         raise ValueError("Pregame and modeling season counts differ")
@@ -115,6 +130,12 @@ def run_feature_pipeline(
         project_root=project_root,
     )
 
+    print("\nBuilding roster-continuity feature...")
+
+    roster_continuity_summary = build_roster_continuity_dataset(
+        project_root=project_root,
+    )
+
     print("\nBuilding leakage-safe pregame team features...")
 
     pregame_summary = build_pregame_team_feature_dataset(
@@ -130,6 +151,7 @@ def run_feature_pipeline(
     validate_stage_counts(
         team_history_summary=team_history_summary,
         elo_summary=elo_summary,
+        roster_continuity_summary=roster_continuity_summary,
         pregame_summary=pregame_summary,
         modeling_summary=modeling_summary,
     )
@@ -143,6 +165,7 @@ def run_feature_pipeline(
         source_game_rows=modeling_summary.source_game_rows,
         team_history_rows=team_history_summary.output_team_rows,
         elo_rating_rows=elo_summary.output_team_rows,
+        roster_continuity_rows=roster_continuity_summary.output_team_game_rows,
         pregame_team_feature_rows=(pregame_summary.output_feature_rows),
         modeling_rows=modeling_summary.output_model_rows,
         seasons=modeling_summary.seasons,

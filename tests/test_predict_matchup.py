@@ -26,6 +26,7 @@ def make_training_frame(rows: int = 40) -> pd.DataFrame:
             "DAYS_REST_DIFF": rng.integers(-2, 3, size=rows).astype("float64"),
             "IS_BACK_TO_BACK_DIFF": rng.integers(-1, 2, size=rows).astype("float64"),
             "ELO_RATING_DIFF": rng.uniform(-200.0, 200.0, size=rows),
+            "ROLLING_CORE_CONTINUITY_DIFF": rng.uniform(-0.5, 0.5, size=rows),
             "home_win": home_win,
         }
     )

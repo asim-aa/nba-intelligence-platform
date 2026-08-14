@@ -23,6 +23,12 @@ Elo works the same way, one level simpler: a team's current rating is
 just its most recent POST_GAME_ELO_RATING, regressed toward the mean via
 build_team_elo_ratings.py's carried_rating() if the target game falls in
 a new season.
+
+Roster continuity uses the placeholder technique again, one level over:
+build_roster_continuity_features.py's own compute_rolling_continuity() is
+reused directly on the team's real per-game CORE_MINUTES_REALIZED_RATIO
+history plus one placeholder row, the same shift(1)-safe reroll every
+other rolling feature here gets.
 """
 
 from __future__ import annotations
@@ -41,6 +47,10 @@ from pipelines.features.build_pregame_team_features import (
     add_outcome_history_features,
     add_schedule_features,
 )
+from pipelines.features.build_roster_continuity_features import (
+    compute_rolling_continuity,
+    roster_continuity_output_path,
+)
 from pipelines.features.build_team_elo_ratings import (
     INITIAL_RATING,
     carried_rating,
@@ -48,9 +58,15 @@ from pipelines.features.build_team_elo_ratings import (
 )
 from pipelines.features.build_team_history import team_history_output_path
 
-# The rolling/season-scoped features, excluding ELO_RATING which has its
-# own separate, cross-season computation below.
-ROLLING_STATE_COLUMNS = tuple(column for column in SIDE_FEATURE_COLUMNS if column != "ELO_RATING")
+# The rolling/season-scoped features computed from team_history.parquet,
+# excluding the two columns with their own separate, differently-shaped
+# source data and computation below: ELO_RATING (cross-season simulation)
+# and ROLLING_CORE_CONTINUITY (player-log-derived).
+ROLLING_STATE_COLUMNS = tuple(
+    column
+    for column in SIDE_FEATURE_COLUMNS
+    if column not in {"ELO_RATING", "ROLLING_CORE_CONTINUITY"}
+)
 
 MODEL_ROW_COLUMNS = (*CATEGORICAL_FEATURE_COLUMNS, *NUMERIC_FEATURE_COLUMNS)
 
@@ -182,6 +198,71 @@ def compute_team_rolling_state(
     return state
 
 
+def load_roster_continuity(project_root: Path) -> pd.DataFrame:
+    """Load the roster-continuity feature table built by Phase 5."""
+
+    path = roster_continuity_output_path(project_root)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Roster continuity does not exist: {path}")
+
+    continuity = pd.read_parquet(path)
+    continuity["GAME_DATE"] = pd.to_datetime(continuity["GAME_DATE"], errors="raise")
+
+    return continuity
+
+
+def compute_team_current_roster_continuity(
+    roster_continuity: pd.DataFrame,
+    team_id: int,
+    season: str,
+    as_of_date: pd.Timestamp,
+) -> float:
+    """Compute a team's pregame roster-continuity feature for a hypothetical
+    next game on as_of_date, from its real same-season history so far.
+
+    Same placeholder technique as compute_team_rolling_state, one source
+    over: extend the team's real per-game CORE_MINUTES_REALIZED_RATIO
+    history with one placeholder row, then reuse
+    build_roster_continuity_features.py's own compute_rolling_continuity()
+    -- the placeholder's own (unknown) ratio is never read, since
+    shift(1) only ever looks backward.
+    """
+
+    state_columns = ["SEASON", "TEAM_ID", "GAME_ID", "GAME_DATE", "CORE_MINUTES_REALIZED_RATIO"]
+
+    team_season_history = roster_continuity.loc[
+        roster_continuity["TEAM_ID"].eq(team_id) & roster_continuity["SEASON"].eq(season),
+        state_columns,
+    ].sort_values(["GAME_DATE"], kind="stable")
+
+    if not team_season_history.empty and (team_season_history["GAME_DATE"] >= as_of_date).any():
+        raise ValueError(
+            f"Team {team_id} already has a recorded {season} game on or after {as_of_date.date()}"
+        )
+
+    placeholder = pd.DataFrame(
+        [
+            {
+                "SEASON": season,
+                "TEAM_ID": team_id,
+                "GAME_ID": "PLACEHOLDER",
+                "GAME_DATE": as_of_date,
+                "CORE_MINUTES_REALIZED_RATIO": float("nan"),
+            }
+        ]
+    )
+
+    if team_season_history.empty:
+        extended = placeholder
+    else:
+        extended = pd.concat([team_season_history, placeholder], ignore_index=True)
+
+    extended = compute_rolling_continuity(extended)
+
+    return float(extended.iloc[-1]["ROLLING_CORE_CONTINUITY"])
+
+
 def compute_team_current_elo(
     elo_ratings: pd.DataFrame,
     team_id: int,
@@ -208,11 +289,12 @@ def compute_team_current_elo(
 def compute_team_state(
     team_history: pd.DataFrame,
     elo_ratings: pd.DataFrame,
+    roster_continuity: pd.DataFrame,
     team_id: int,
     season: str,
     as_of_date: pd.Timestamp,
 ) -> dict[str, float]:
-    """Compute a team's full pregame state (rolling stats + Elo)."""
+    """Compute a team's full pregame state (rolling stats + Elo + roster continuity)."""
 
     state = compute_team_rolling_state(
         team_history=team_history,
@@ -224,6 +306,12 @@ def compute_team_state(
         elo_ratings=elo_ratings,
         team_id=team_id,
         season=season,
+    )
+    state["ROLLING_CORE_CONTINUITY"] = compute_team_current_roster_continuity(
+        roster_continuity=roster_continuity,
+        team_id=team_id,
+        season=season,
+        as_of_date=as_of_date,
     )
 
     return state
@@ -290,11 +378,13 @@ def compute_matchup_features(
 
     team_history = load_team_history(project_root)
     elo_ratings = load_elo_ratings(project_root)
+    roster_continuity = load_roster_continuity(project_root)
     as_of_date = pd.Timestamp(game_date)
 
     home_state = compute_team_state(
         team_history=team_history,
         elo_ratings=elo_ratings,
+        roster_continuity=roster_continuity,
         team_id=home_team_id,
         season=season,
         as_of_date=as_of_date,
@@ -302,6 +392,7 @@ def compute_matchup_features(
     away_state = compute_team_state(
         team_history=team_history,
         elo_ratings=elo_ratings,
+        roster_continuity=roster_continuity,
         team_id=away_team_id,
         season=season,
         as_of_date=as_of_date,

@@ -422,7 +422,7 @@ def main() -> None:
         if picks.empty:
             st.write("No picks yet.")
         else:
-            st.dataframe(picks, use_container_width=True)
+            st.dataframe(picks, width="stretch")
 
 
 if __name__ == "__main__":

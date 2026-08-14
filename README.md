@@ -23,23 +23,34 @@ status of every piece, including known gaps this README doesn't get into.
 ## Results
 
 The selected model is logistic regression on a compact, interpretable feature set: season win
-percentage, recent form, recent point differential, rest, back-to-backs, and an opponent-adjusted
-Elo rating differential (see `pipelines/features/build_team_elo_ratings.py`). It was selected on
-2023-24 validation performance, before the test seasons were read, after beating both required
-baselines and a regularized CatBoost model on every validation metric.
+percentage, recent form, recent point differential, rest, back-to-backs, an opponent-adjusted Elo
+rating differential (see `pipelines/features/build_team_elo_ratings.py`), and a roster-continuity
+differential (see `pipelines/features/build_roster_continuity_features.py` — a leakage-safe proxy
+for pregame injury/availability, built from player game logs since the NBA's real injury report has
+no clean historical API). It was selected on 2023-24 validation performance, before the test seasons
+were read, after beating both required baselines and a regularized CatBoost model on every
+validation metric.
+
+**v1.1 note:** the roster-continuity feature was added after v1's initial freeze, validated the same
+way (train/validation only, before touching test), and improved log loss, Brier score, and ROC-AUC
+on the held-out test set — so Phase 8 was deliberately re-run once as a new, documented iteration.
+This does not violate `docs/project_spec.md` section 7 (rule 8)'s one-time-test rule: that rule
+prevents using test performance to *choose* between models or features, and no such choice was made
+using test data here — the decision to add the feature was made entirely on validation, and Phase 8
+answered "how good is this new frozen model" exactly once, the same as v1 did.
 
 Final one-time evaluation on the held-out 2024-25 through 2025-26 test set (2,460 games):
 
-| Metric | Value |
-| --- | --- |
-| Log loss | 0.5996 |
-| Brier score | 0.2067 |
-| ROC-AUC | 0.7347 |
-| Accuracy (0.50 threshold) | 0.6789 |
-| Expected calibration error | 0.0213 |
+| Metric | v1 | v1.1 (current) |
+| --- | --- | --- |
+| Log loss | 0.5996 | 0.5965 |
+| Brier score | 0.2067 | 0.2054 |
+| ROC-AUC | 0.7347 | 0.7381 |
+| Accuracy (0.50 threshold) | 0.6789 | 0.6780 |
+| Expected calibration error | 0.0213 | 0.0214 |
 
-Test performance matched or exceeded validation on every metric, with no sign that model selection
-had overfit to the validation season. The full comparison table, calibration table, and a
+Test performance matched or exceeded validation on every metric both times, with no sign that model
+selection had overfit to the validation season. The full comparison table, calibration table, and a
 reliability diagram are written to `artifacts/nba/final_evaluation/` when you run the pipeline
 (gitignored, generated locally — not present in a fresh clone).
 
@@ -48,8 +59,8 @@ single test-set-wide calibration figure. Two supplementary, non-reopening diagno
 (see `docs/roadmap.md` for the full methodology and findings): a walk-forward backtest across 8
 season cutoffs shows accuracy ranging from 0.62 to 0.68 depending on where the cutoff falls — the
 official result sits near the favorable end, not the middle — and a calibration breakdown by
-segment shows back-to-back games are markedly less well-calibrated than rested games (ECE 0.0395
-vs. 0.0180).
+segment shows back-to-back games are markedly less well-calibrated than rested games (ECE 0.0390
+vs. 0.0233).
 
 ## Scope
 
@@ -95,6 +106,7 @@ seasons or features is cheap.
 
 ```bash
 uv run python -m pipelines.ingestion.ingest_historical_seasons
+uv run python -m pipelines.ingestion.ingest_player_game_logs
 uv run python -m pipelines.transform.build_historical_game_datasets \
   --seasons 2015-16 2016-17 2017-18 2018-19 2019-20 2020-21 2021-22 2022-23 2023-24 2024-25 2025-26
 uv run python -m pipelines.features.run_feature_pipeline
@@ -170,9 +182,9 @@ nba-intelligence-platform/
 │   ├── interim/
 │   └── samples/
 ├── pipelines/
-│   ├── ingestion/        # historical ingestion + live schedule fetch
+│   ├── ingestion/        # historical + player-log ingestion, live schedule fetch
 │   ├── transform/        # game-level dataset + matchup reconciliation
-│   └── features/         # rolling stats, Elo ratings, final modeling dataset
+│   └── features/         # rolling stats, Elo ratings, roster continuity, modeling dataset
 ├── modeling/
 │   ├── data/              # chronological train/validation/test split
 │   ├── baselines/

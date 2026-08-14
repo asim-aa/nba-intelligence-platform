@@ -165,6 +165,16 @@ def extract_game_record(game: dict[str, Any], group_date: str) -> dict[str, obje
     away_team_id = int(away_team_id)
 
     if home_team_id == away_team_id:
+        # A schedule published before the Emirates NBA Cup knockout bracket
+        # is determined includes placeholder games for it (gameStatusText
+        # "TBD") with teamId 0 on both sides -- not yet a real matchup, so
+        # this is incomplete data to skip, like a missing home/away team
+        # above, not a corrupt one to raise on. Confirmed against the
+        # 2026-27 season's initial schedule release: 7 such placeholders,
+        # every one team_id 0 with gameSubtype "in-season-knockout".
+        if home_team_id == 0:
+            return None
+
         raise ValueError(f"Schedule game {game_id} has identical home and away teams")
 
     return {

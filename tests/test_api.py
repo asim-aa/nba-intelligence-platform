@@ -23,6 +23,7 @@ from pipelines.features.build_modeling_dataset import (
     NUMERIC_FEATURE_COLUMNS,
     modeling_dataset_output_path,
 )
+from pipelines.features.build_roster_continuity_features import roster_continuity_output_path
 from pipelines.features.build_team_elo_ratings import elo_ratings_output_path
 from pipelines.features.build_team_history import team_history_output_path
 from pipelines.ingestion.fetch_schedule import GAME_STATUS_FINAL
@@ -63,6 +64,7 @@ def make_training_frame(rows: int = 40) -> pd.DataFrame:
             "DAYS_REST_DIFF": rng.integers(-2, 3, size=rows).astype("float64"),
             "IS_BACK_TO_BACK_DIFF": rng.integers(-1, 2, size=rows).astype("float64"),
             "ELO_RATING_DIFF": rng.uniform(-200.0, 200.0, size=rows),
+            "ROLLING_CORE_CONTINUITY_DIFF": rng.uniform(-0.5, 0.5, size=rows),
             "home_win": home_win,
         }
     )
@@ -110,6 +112,32 @@ def write_serving_fixtures(project_root: Path) -> None:
     elo_path = elo_ratings_output_path(project_root)
     elo_path.parent.mkdir(parents=True, exist_ok=True)
     elo_ratings.to_parquet(elo_path, index=False)
+
+    roster_continuity = pd.DataFrame(
+        [
+            {
+                "SEASON": "2025-26",
+                "SEASON_ID": "22025",
+                "GAME_ID": "0022500001",
+                "GAME_DATE": pd.Timestamp("2025-10-24"),
+                "TEAM_ID": TEAM_A,
+                "ROLLING_CORE_CONTINUITY": 0.85,
+                "CORE_MINUTES_REALIZED_RATIO": 0.9,
+            },
+            {
+                "SEASON": "2025-26",
+                "SEASON_ID": "22025",
+                "GAME_ID": "0022500002",
+                "GAME_DATE": pd.Timestamp("2025-10-25"),
+                "TEAM_ID": TEAM_B,
+                "ROLLING_CORE_CONTINUITY": 0.80,
+                "CORE_MINUTES_REALIZED_RATIO": 0.7,
+            },
+        ]
+    )
+    roster_continuity_path = roster_continuity_output_path(project_root)
+    roster_continuity_path.parent.mkdir(parents=True, exist_ok=True)
+    roster_continuity.to_parquet(roster_continuity_path, index=False)
 
     modeling_row = {
         "SEASON": "2025-26",

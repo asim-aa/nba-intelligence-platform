@@ -88,6 +88,39 @@ def test_parse_schedule_payload_rejects_identical_teams() -> None:
         parse_schedule_payload(payload)
 
 
+def test_parse_schedule_payload_skips_tbd_bracket_placeholder_games() -> None:
+    """Confirmed against the real 2026-27 season's initial schedule
+    release: 7 Emirates NBA Cup knockout games published before the
+    bracket is determined carry teamId 0 on both sides ("TBD"). That is
+    incomplete data to skip, not corrupt data to raise on -- unlike a
+    genuine identical-non-zero-team-ID case, which still raises above.
+    """
+
+    payload = make_payload(
+        {
+            "11/05/2025": [make_game(game_id="0022500001")],
+            "12/09/2026": [
+                make_game(
+                    game_id="0022601201",
+                    home_id=0,
+                    away_id=0,
+                    status=GAME_STATUS_SCHEDULED,
+                    status_text="TBD",
+                    label="Emirates NBA Cup",
+                    sub_label="Quarterfinal",
+                    home_score="",
+                    away_score="",
+                )
+            ],
+        }
+    )
+
+    schedule = parse_schedule_payload(payload)
+
+    assert len(schedule) == 1
+    assert schedule.iloc[0]["GAME_ID"] == "0022500001"
+
+
 def test_parse_schedule_payload_rejects_duplicate_game_ids() -> None:
     payload = make_payload(
         {
