@@ -1,0 +1,62 @@
+name: Refresh live season
+
+on:
+  schedule:
+    # 10:00 UTC daily -- after the previous night's NBA games are final,
+    # ahead of most US time zones' morning. Cron runs are UTC regardless
+    # of where this repo's contributors are.
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      # Historical seasons never change once ingested, so the raw/interim
+      # cache saves ~10 seasons of re-fetching from stats.nba.com every
+      # run -- only today's forced current-season refresh needs the network.
+      # restore-keys falls back to the newest previous cache; the run-id
+      # suffix means every run saves a fresh entry (cache actions never
+      # overwrite an existing key), which GitHub evicts by LRU once the
+      # per-repo cache limit is hit -- no manual cleanup needed at this size.
+      - name: Restore raw/interim data cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw
+            data/interim
+          key: nba-raw-data-${{ github.run_id }}
+          restore-keys: |
+            nba-raw-data-
+
+      - name: Refresh current season
+        run: uv run python -m pipelines.refresh_current_season
+
+      - name: Commit refreshed features if changed
+        run: |
+          if git status --porcelain data/processed | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/processed
+            git commit -m "Automated live-season data refresh"
+            git push
+          else
+            echo "No feature changes -- nothing to commit."
+          fi

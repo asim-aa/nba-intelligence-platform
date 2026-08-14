@@ -114,9 +114,21 @@ actually starts. `pipelines/refresh_current_season.py` closes this:
   season (2024-25) -- deterministic, byte-for-byte consistent with the
   data already on disk, no spurious diffs.
 
-Run periodically (daily is plenty) during a live season via
-`uv run python -m pipelines.refresh_current_season`. Still manual --
-nothing schedules this automatically yet (see known gaps).
+Runs on its own now: `.github/workflows/refresh.yml` fires this daily at
+10:00 UTC (and on manual `workflow_dispatch`), caches `data/raw`/`data/interim`
+across runs so only the current season's forced re-ingestion touches the
+network, and commits the refreshed `data/processed` parquet files back to
+`main` if anything changed -- rehearsed locally end to end (including the
+pre-season skip path, which exits clean with nothing to commit). You can
+still run `uv run python -m pipelines.refresh_current_season` by hand any
+time; the workflow just means you no longer have to remember to.
+
+The frozen model artifact (`artifacts/nba/logistic_regression/model.joblib`,
+~4KB) is now committed too -- a narrowly-scoped `.gitignore` exception, since
+a deployed instance needs it to serve predictions and retraining it is a
+deliberate decision (see the v1.1 note above), not something to regenerate
+at deploy time. Everything else under `artifacts/` (picks.db, the unselected
+CatBoost model, evaluation JSONs) stays gitignored and locally generated.
 
 ## Application layer — complete
 
@@ -231,12 +243,17 @@ changes the selected model or its official test result:
   endpoints — by design, since those need network access CI shouldn't
   depend on. Only the synthetic-fixture pytest suite (312 tests as of
   this writing) runs in CI.
-- The live-season refresh (above) is still a manual command, not scheduled
-  automatically. Nothing here provisions a cron job or similar to run it
-  daily during a season -- that's a deployment-environment concern rather
-  than something the codebase itself can guarantee.
-- No deployment story. Both the API and dashboard are meant to run
-  locally; nothing here provisions hosting, TLS, or auth.
+- No deployment story yet. The API and dashboard, plus the now-scheduled
+  live-season refresh (above), are all ready to deploy, but nothing has
+  been pushed to a public host -- no hosting, TLS, or auth is provisioned.
+  This is the one remaining piece between "runs correctly" and "a
+  recruiter/user can open a URL and use it."
+- `stats.nba.com` is known to occasionally rate-limit or block requests
+  from datacenter IPs (cloud/CI runners), even when the identical request
+  works fine from a residential connection. The scheduled refresh workflow
+  already retries with backoff (`max_attempts`), but a run failing in a
+  hosted environment that works locally is the likely explanation, not a
+  code regression.
 - The 2026-27 season's schedule was published shortly after this was
   written, which retired one gap and surfaced another. The "upcoming
   matchup" code path (`feature_source: "computed"`) was exercised against
