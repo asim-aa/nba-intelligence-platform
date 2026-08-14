@@ -26,6 +26,15 @@ data/samples/**
 artifacts/**
 !artifacts/.gitkeep
 
+# Exception: the frozen, selected model is a small (~4KB) deploy-time
+# dependency -- the deployed app needs it to serve predictions, and unlike
+# everything else under artifacts/ it isn't just a rebuild-cheap local run
+# output, since retraining it (per docs/project_spec.md sec. 7 rule 8) is
+# a deliberate, validated decision, not something to redo at deploy time.
+!artifacts/nba/
+!artifacts/nba/logistic_regression/
+!artifacts/nba/logistic_regression/model.joblib
+
 # Notebooks
 .ipynb_checkpoints/
 
