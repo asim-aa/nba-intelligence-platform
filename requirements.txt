@@ -1,0 +1,209 @@
+# Deploy-host fallback for platforms that don't install directly from
+# pyproject.toml. The source of truth for dependencies is pyproject.toml;
+# regenerate this with `uv export --no-dev --no-hashes -o requirements.txt`
+# after any dependency change.
+-e .
+altair==6.2.2
+    # via streamlit
+annotated-doc==0.0.5
+    # via fastapi
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via
+    #   starlette
+    #   streamlit
+attrs==26.1.0
+    # via
+    #   jsonschema
+    #   referencing
+blinker==1.9.0
+    # via streamlit
+catboost==1.2.10
+    # via nba-intelligence-platform
+certifi==2026.7.22
+    # via requests
+charset-normalizer==3.4.9
+    # via requests
+click==8.4.2
+    # via
+    #   streamlit
+    #   uvicorn
+colorama==0.4.6 ; sys_platform == 'win32'
+    # via click
+contourpy==1.3.3
+    # via matplotlib
+cycler==0.12.1
+    # via matplotlib
+fastapi==0.141.1
+    # via nba-intelligence-platform
+fonttools==4.63.0
+    # via matplotlib
+graphviz==0.21
+    # via catboost
+h11==0.16.0
+    # via uvicorn
+httptools==0.8.0
+    # via streamlit
+idna==3.18
+    # via
+    #   anyio
+    #   requests
+itsdangerous==2.2.0
+    # via streamlit
+jinja2==3.1.6
+    # via
+    #   altair
+    #   pydeck
+joblib==1.5.3
+    # via
+    #   nba-intelligence-platform
+    #   scikit-learn
+jsonschema==4.26.0
+    # via altair
+jsonschema-specifications==2025.9.1
+    # via jsonschema
+kiwisolver==1.5.0
+    # via matplotlib
+markupsafe==3.0.3
+    # via jinja2
+matplotlib==3.11.1
+    # via
+    #   catboost
+    #   nba-intelligence-platform
+narwhals==2.24.0
+    # via
+    #   altair
+    #   plotly
+    #   scikit-learn
+nba-api==1.11.4
+    # via nba-intelligence-platform
+numpy==2.3.5 ; python_full_version >= '3.12'
+    # via
+    #   catboost
+    #   contourpy
+    #   matplotlib
+    #   nba-api
+    #   pandas
+    #   pydeck
+    #   scikit-learn
+    #   scipy
+    #   streamlit
+numpy==2.4.6 ; python_full_version < '3.12'
+    # via
+    #   catboost
+    #   contourpy
+    #   matplotlib
+    #   nba-api
+    #   pandas
+    #   pydeck
+    #   scikit-learn
+    #   scipy
+    #   streamlit
+packaging==26.2
+    # via
+    #   altair
+    #   matplotlib
+    #   plotly
+    #   streamlit
+pandas==2.3.3
+    # via
+    #   catboost
+    #   nba-api
+    #   nba-intelligence-platform
+    #   streamlit
+pillow==12.3.0
+    # via
+    #   matplotlib
+    #   streamlit
+plotly==6.9.0
+    # via catboost
+protobuf==7.35.1
+    # via streamlit
+pyarrow==19.0.1
+    # via
+    #   nba-intelligence-platform
+    #   streamlit
+pydantic==2.13.4
+    # via
+    #   fastapi
+    #   nba-intelligence-platform
+pydantic-core==2.46.4
+    # via pydantic
+pydeck==0.9.3
+    # via streamlit
+pyparsing==3.3.2
+    # via matplotlib
+python-dateutil==2.9.0.post0
+    # via
+    #   matplotlib
+    #   pandas
+python-multipart==0.0.32
+    # via streamlit
+pytz==2026.3.post1
+    # via pandas
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+requests==2.34.2
+    # via
+    #   nba-api
+    #   streamlit
+rpds-py==2026.6.3
+    # via
+    #   jsonschema
+    #   referencing
+scikit-learn==1.9.0
+    # via nba-intelligence-platform
+scipy==1.17.1 ; python_full_version < '3.12'
+    # via
+    #   catboost
+    #   scikit-learn
+scipy==1.18.0 ; python_full_version >= '3.12'
+    # via
+    #   catboost
+    #   scikit-learn
+six==1.17.0
+    # via
+    #   catboost
+    #   python-dateutil
+starlette==1.3.1
+    # via
+    #   fastapi
+    #   streamlit
+streamlit==1.61.1
+    # via nba-intelligence-platform
+tenacity==9.1.4
+    # via streamlit
+threadpoolctl==3.6.0
+    # via scikit-learn
+toml==0.10.2
+    # via streamlit
+typing-extensions==4.16.0
+    # via
+    #   altair
+    #   anyio
+    #   fastapi
+    #   pydantic
+    #   pydantic-core
+    #   referencing
+    #   starlette
+    #   streamlit
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via
+    #   fastapi
+    #   pydantic
+tzdata==2026.3
+    # via pandas
+urllib3==2.7.0
+    # via requests
+uvicorn==0.52.1
+    # via
+    #   nba-intelligence-platform
+    #   streamlit
+watchdog==6.0.0 ; sys_platform != 'darwin'
+    # via streamlit
+websockets==16.1.1
+    # via streamlit
