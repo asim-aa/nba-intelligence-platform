@@ -323,7 +323,13 @@ def render_refresh_button(season: str) -> None:
         st.info("Nothing pending.")
         return
 
-    schedule = cached_season_schedule(season)
+    try:
+        schedule = cached_season_schedule(season)
+    except Exception as error:
+        st.error(f"Could not fetch the {season} schedule: {error}")
+        st.caption("Usually a transient network hiccup -- click the button again to retry.")
+        return
+
     resolved_count = 0
 
     for _, pick in pending.iterrows():
@@ -531,6 +537,12 @@ def main() -> None:
         schedule = cached_season_schedule(season)
     except Exception as error:
         st.error(f"Could not fetch the {season} schedule: {error}")
+        st.caption(
+            "This is usually a transient network hiccup against stats.nba.com, not a "
+            "persistent outage -- retrying often just works."
+        )
+        if st.button("🔄 Retry fetching schedule"):
+            st.rerun()
         return
 
     regular_season = filter_regular_season_games(schedule)
