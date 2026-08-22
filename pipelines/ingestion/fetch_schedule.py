@@ -267,7 +267,8 @@ def fetch_schedule(
                 time.sleep(backoff_seconds * attempt)
 
     raise RuntimeError(
-        f"Failed to fetch schedule for {season} after {max_attempts} attempts"
+        f"Failed to fetch schedule for {season} after {max_attempts} attempts "
+        f"-- last error: {type(last_error).__name__}: {last_error}"
     ) from last_error
 
 
