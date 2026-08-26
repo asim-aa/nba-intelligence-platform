@@ -3,6 +3,24 @@
 An end-to-end machine-learning project that estimates the probability that the home team wins an
 NBA regular-season game using only information available before tipoff.
 
+**[🏀 Try the live Streamlit dashboard](https://nba-intelligence-platform-uhspx8ztbxf4algcfyujvb.streamlit.app/)**
+
+## Interactive demo
+
+The deployed dashboard turns the model into a pick-the-winner game. Choose a date, compare each
+matchup's pregame statistics, lock in your picks before seeing the model's probabilities, and then
+compare your calls with the model and the actual outcomes.
+
+For a more game-like experience, the dashboard includes a **💰 simulated parlay** feature. Enter a
+paper stake and every pick locked in for that day's slate is combined into a parlay using a fixed
+-110 illustrative vig per leg. The app tracks both **your parlay** and the **model parlay**, making it
+an easy way to compare human judgment with the frozen ML model across an entire slate. It also
+includes simulated round-robin and flat-stake tracking for exploring how prediction quality behaves
+under different combinations.
+
+> **Simulation only:** no real money, sportsbook, payment method, or betting transaction is involved.
+> These features are for interactive model evaluation and entertainment, not betting advice.
+
 ## Current phase status
 
 - [x] Phase 0: prediction problem and leakage policy
@@ -157,22 +175,31 @@ same way the roster-continuity feature above was adopted.
 
 ## Run the dashboard
 
+**Live app:** https://nba-intelligence-platform-uhspx8ztbxf4algcfyujvb.streamlit.app/
+
 An interactive pick-the-winner game: see a day's slate, compare the two teams' pregame stats,
 lock in your pick, then see the model's prediction and the real outcome. Tracks your accuracy
 against the model's over time.
+
+### Dashboard features
+
+- **Pick before the model:** lock in a winner before the model prediction is revealed.
+- **Pregame comparison:** inspect season/L10 form, recent scoring, rest, Elo, and other model context.
+- **💰 Simulated parlay:** combine every locked pick for a slate into one paper parlay and compare
+  your parlay with the model's parlay.
+- **Simulated round robin:** split a slate into smaller combinations so one missed pick does not
+  invalidate every combination.
+- **Live calibration monitor:** compare resolved live predictions with the frozen test-set reference.
+- **Simulated betting tracker:** evaluate a fixed-stake, fixed-odds model-following strategy on paper.
+
+All betting-style features are **simulation only**: no real money, sportsbook integration, payment
+method, or wagering transaction exists anywhere in the application.
 
 ```bash
 uv run streamlit run app/dashboard/app.py
 ```
 
-A "💰 Simulated parlay stake" input sits at the top of the page -- enter an amount and it combines
-every pick locked in for that day into one parlay (every leg must win, one loss busts the whole
-thing), shown immediately below. The "Live calibration monitor" expander scores your real,
-resolved picks against the frozen test-set reference; the "Simulated betting tracker" expander
-backtests a flat-stake, fixed-odds "bet the model" strategy against them; and the "Simulated round
-robin" expander splits a day's picks into every possible mini-parlay combination of a chosen size,
-so one bad leg only kills the combinations that included it. All of this is paper only -- no real
-money, sportsbook, or payment method involved anywhere. The standalone trackers:
+The standalone analysis trackers can also be run directly:
 
 ```bash
 uv run python -m app.dashboard.live_calibration_monitor
