@@ -10,6 +10,7 @@ dependencies = [
     "joblib>=1.5,<2",
     "matplotlib>=3.11,<4",
     "nba-api>=1.10,<2",
+    "openai>=1.50,<3",
     "pandas>=2.2,<3",
     "pyarrow>=18,<20",
     "pydantic>=2.10,<3",

@@ -11,6 +11,8 @@ annotated-types==0.8.0
     # via pydantic
 anyio==4.14.2
     # via
+    #   httpx
+    #   openai
     #   starlette
     #   streamlit
 attrs==26.1.0
@@ -22,7 +24,10 @@ blinker==1.9.0
 catboost==1.2.10
     # via nba-intelligence-platform
 certifi==2026.7.22
-    # via requests
+    # via
+    #   httpcore
+    #   httpx
+    #   requests
 charset-normalizer==3.4.9
     # via requests
 click==8.4.2
@@ -30,11 +35,15 @@ click==8.4.2
     #   streamlit
     #   uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
-    # via click
+    # via
+    #   click
+    #   tqdm
 contourpy==1.3.3
     # via matplotlib
 cycler==0.12.1
     # via matplotlib
+distro==1.9.0
+    # via openai
 fastapi==0.141.1
     # via nba-intelligence-platform
 fonttools==4.63.0
@@ -42,12 +51,19 @@ fonttools==4.63.0
 graphviz==0.21
     # via catboost
 h11==0.16.0
-    # via uvicorn
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
 httptools==0.8.0
     # via streamlit
+httpx==0.28.1
+    # via openai
 idna==3.18
     # via
     #   anyio
+    #   httpx
     #   requests
 itsdangerous==2.2.0
     # via streamlit
@@ -55,6 +71,8 @@ jinja2==3.1.6
     # via
     #   altair
     #   pydeck
+jiter==0.19.0
+    # via openai
 joblib==1.5.3
     # via
     #   nba-intelligence-platform
@@ -100,6 +118,8 @@ numpy==2.4.6 ; python_full_version < '3.12'
     #   scikit-learn
     #   scipy
     #   streamlit
+openai==2.54.0
+    # via nba-intelligence-platform
 packaging==26.2
     # via
     #   altair
@@ -128,6 +148,7 @@ pydantic==2.13.4
     # via
     #   fastapi
     #   nba-intelligence-platform
+    #   openai
 pydantic-core==2.46.4
     # via pydantic
 pydeck==0.9.3
@@ -168,6 +189,8 @@ six==1.17.0
     # via
     #   catboost
     #   python-dateutil
+sniffio==1.3.1
+    # via openai
 starlette==1.3.1
     # via
     #   fastapi
@@ -180,11 +203,14 @@ threadpoolctl==3.6.0
     # via scikit-learn
 toml==0.10.2
     # via streamlit
+tqdm==4.70.1
+    # via openai
 typing-extensions==4.16.0
     # via
     #   altair
     #   anyio
     #   fastapi
+    #   openai
     #   pydantic
     #   pydantic-core
     #   referencing
