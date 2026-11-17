@@ -35,6 +35,12 @@ from pipelines.ingestion.fetch_schedule import (
     season_for_date,
 )
 
+from app.dashboard.agent_panel import (
+    SLATE_DATE_KEY,
+    agent_state,
+    render_agent_chat,
+    render_agent_view,
+)
 from app.dashboard.live_calibration_monitor import (
     load_frozen_reference_metrics,
     run_live_calibration_monitor,
@@ -279,6 +285,10 @@ def render_slate(day_slate: pd.DataFrame, season: str) -> None:
             st.subheader(header)
             st.caption(game["GAME_STATUS_TEXT"].strip() or "Scheduled")
 
+            teams = (int(game["HOME_TEAM_ID"]), int(game["AWAY_TEAM_ID"]))
+            if teams == agent_state().selected_game:
+                st.info("🤖 The agent selected this game.")
+
             feature_row, source, historical_home_win = cached_matchup_features(
                 int(game["HOME_TEAM_ID"]),
                 int(game["AWAY_TEAM_ID"]),
@@ -518,6 +528,11 @@ def main() -> None:
         "it does."
     )
 
+    # The agent runs before the date picker exists so its tool results can
+    # set the picker's value for this same run.
+    render_agent_chat(PROJECT_ROOT)
+    render_agent_view()
+
     parlay_stake = st.number_input(
         "💰 Simulated parlay stake ($)",
         min_value=1.0,
@@ -526,7 +541,8 @@ def main() -> None:
         help="Paper money only -- no real bet is ever placed.",
     )
 
-    picked_date = st.date_input("Slate date", value=DEFAULT_DEMO_DATE)
+    st.session_state.setdefault(SLATE_DATE_KEY, DEFAULT_DEMO_DATE.date())
+    picked_date = st.date_input("Slate date", key=SLATE_DATE_KEY)
     season = season_for_date(pd.Timestamp(picked_date))
     st.caption(f"Season: {season}")
 
