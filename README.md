@@ -206,6 +206,85 @@ uv run python -m app.dashboard.live_calibration_monitor
 uv run python -m app.dashboard.simulated_betting_tracker
 ```
 
+## Ask the dashboard (LLM agent)
+
+The dashboard's sidebar has a chat panel. Type a request in plain English and an LLM agent
+answers it by calling a small, fixed set of tools — the same functions the dashboard and API
+already use — and the dashboard updates to show what it did: the slate date moves, the game it
+picked is marked, and an "Agent view" panel shows the table (and chart) for the last lookup.
+Every tool call is listed under "Actions taken" beneath each answer.
+
+Things it can handle:
+
+- "Who wins Lakers vs Celtics tonight and how confident is the model?"
+- "Pick the winner for tomorrow's games and show the table."
+- "Show calibration for back-to-back games vs rested games."
+- "Compare the last 3 walk-forward cutoffs."
+
+### Tools
+
+The agent can call these and nothing else (`app/agent/tools.py`). There is no code execution,
+no SQL and no file access; arguments are validated by Pydantic models that reject unknown
+fields, and a bad call comes back to the agent as an error message it can correct.
+
+| Tool | Arguments | Wraps |
+| --- | --- | --- |
+| `find_team` | `query` | `nba_api`'s static team list |
+| `predict_matchup` | `home_team`, `away_team`, `game_date` | `app.api.main.get_matchup_prediction` |
+| `get_slate_predictions` | `date` | `app.api.main.get_slate_predictions` |
+| `get_live_calibration` | — | `app.dashboard.live_calibration_monitor` |
+| `get_calibration_by_segment` | `dimension` (`back_to_back` or `season_phase`) | `modeling.evaluation.run_calibration_by_segment` |
+| `get_backtest_results` | `last_n` (optional) | `modeling.evaluation.run_robustness_backtest` |
+
+### Configure the model
+
+The agent uses the OpenAI SDK's chat-completions tool calling, so it works with OpenAI or any
+OpenAI-compatible endpoint. Configuration is environment variables only — nothing is read from
+a file, and no key belongs in the repo:
+
+```bash
+export OPENAI_API_KEY=...            # required
+export NBA_AGENT_MODEL=...           # required: a tool-calling model your endpoint serves
+export OPENAI_BASE_URL=...           # optional: only for a non-OpenAI endpoint
+uv run streamlit run app/dashboard/app.py
+```
+
+Without the key and model set, the rest of the dashboard works as before and the chat panel
+says what is missing. With them set, each request sends your message, the tool definitions and
+the tool results to that endpoint, in up to 6 model calls.
+
+### Tests and eval
+
+```bash
+uv run pytest tests/test_agent_tools.py tests/test_agent_loop.py \
+  tests/test_agent_ui_state.py tests/test_agent_eval.py
+```
+
+None of these touch a real model: the loop tests script a fake client.
+
+```bash
+uv run python -m app.agent.eval
+```
+
+The eval sends 21 labeled requests to the configured model and reports tool-selection accuracy
+and argument accuracy for the model's first tool call. **It has not been run against a real
+model yet** — there are no results to report. It needs the same environment variables as above.
+
+### Known limitations
+
+- The agent has only been exercised end to end against a scripted stand-in for the model, which
+  checks the wiring, not a real model's judgment.
+- "Only state numbers that came from a tool" is an instruction in the system prompt. Nothing
+  checks the written answer against the tool results, so treat the "Agent view" table as the
+  source of truth.
+- `get_slate_predictions` fetches the schedule from stats.nba.com, which fails intermittently;
+  the agent is told to report the failure rather than guess.
+- `predict_matchup` predicts any two teams on any date and does not check the game is scheduled.
+- Team lookup matches full names, nicknames, cities and abbreviations only ("Sixers" will not
+  resolve), and "today" is the date on the machine running the dashboard.
+- Follow-up questions see earlier messages but not earlier tool results.
+- The agent runs inside the dashboard process; there is no `/agent/chat` HTTP endpoint.
+
 ## Run the API
 
 Serves the same frozen model over HTTP, for any client that isn't this project's own Python.
@@ -227,6 +306,7 @@ Interactive API docs are at `http://127.0.0.1:8000/docs` once it's running.
 ```text
 nba-intelligence-platform/
 ├── app/
+│   ├── agent/            # LLM agent: allowlisted tools, loop, UI-state layer, eval
 │   ├── api/              # FastAPI prediction service
 │   └── dashboard/        # Streamlit pick-the-winner game
 ├── data/

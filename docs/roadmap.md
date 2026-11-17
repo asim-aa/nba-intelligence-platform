@@ -236,13 +236,45 @@ changes the selected model or its official test result:
   probabilities are less trustworthy at face value then, which the single
   test-set-wide ECE in the README doesn't surface.
 
+## Dashboard agent — built, not yet run against a real model
+
+A chat panel in the dashboard sidebar drives the dashboard through an
+LLM agent (`app/agent/`). See the README's "Ask the dashboard" section
+for the tool list, configuration and limitations; the structure is:
+
+- **`tools.py`** — six allowlisted tools, each a thin wrapper over an
+  existing function (API prediction logic, live calibration monitor,
+  calibration by segment, walk-forward backtest, plus a team lookup on
+  `nba_api`'s static team list). Pydantic input models reject unknown
+  fields, and every failure comes back as `{"error": ...}` instead of
+  raising, so the agent can correct itself.
+- **`loop.py`** — a plain OpenAI chat-completions tool-calling loop capped
+  at 6 model calls, with the client injected so tests never reach a real
+  model.
+- **`ui_state.py`** — the only place that knows what a tool result means
+  for the UI (which date, which game, which table/chart). Pure data, no
+  Streamlit or LLM import; `app/dashboard/agent_panel.py` renders it.
+- **`eval.py`** — 21 labeled requests scored on the model's first tool
+  call (tool-selection and argument accuracy).
+
+What has and hasn't been verified: the tools were run against the real
+data on disk; the loop, UI-state layer and eval scoring are unit-tested
+with a scripted fake client; and the chat panel was driven in a browser
+against a scripted OpenAI-compatible endpoint, which is how a real bug
+was caught (an `st.rerun()` after each turn reset the date picker
+whenever a non-date tool ran). No real model has been called, so the
+eval has no results and nothing is known yet about how well a real
+model routes requests or how faithfully it reports tool numbers.
+
 ## Known gaps (honest, as of this writing)
 
+- The dashboard agent has never been run against a real model, and its
+  eval has never produced a number — see the section above.
 - `sql/` only has `picks_schema.sql` for the dashboard; no other use yet.
-- No CI job exercises the dashboard, the API, or the live NBA.com
-  endpoints — by design, since those need network access CI shouldn't
-  depend on. Only the synthetic-fixture pytest suite (312 tests as of
-  this writing) runs in CI.
+- No CI job exercises the dashboard, the API, the agent's real LLM calls,
+  or the live NBA.com endpoints — by design, since those need network
+  access CI shouldn't depend on. Only the synthetic-fixture pytest suite
+  (394 tests as of this writing) runs in CI.
 - No deployment story yet. The API and dashboard, plus the now-scheduled
   live-season refresh (above), are all ready to deploy, but nothing has
   been pushed to a public host -- no hosting, TLS, or auth is provisioned.
