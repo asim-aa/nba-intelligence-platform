@@ -114,14 +114,18 @@ actually starts. `pipelines/refresh_current_season.py` closes this:
   season (2024-25) -- deterministic, byte-for-byte consistent with the
   data already on disk, no spurious diffs.
 
-Runs on its own now: `.github/workflows/refresh.yml` fires this daily at
-10:00 UTC (and on manual `workflow_dispatch`), caches `data/raw`/`data/interim`
-across runs so only the current season's forced re-ingestion touches the
-network, and commits the refreshed `data/processed` parquet files back to
-`main` if anything changed -- rehearsed locally end to end (including the
-pre-season skip path, which exits clean with nothing to commit). You can
-still run `uv run python -m pipelines.refresh_current_season` by hand any
-time; the workflow just means you no longer have to remember to.
+`.github/workflows/refresh.yml` was written to run this daily at 10:00 UTC
+(and on manual `workflow_dispatch`), caching `data/raw`/`data/interim` and
+committing refreshed `data/processed` files back to `main`. **It does not
+work from GitHub's runners:** the 2026-10-24 and 2026-10-25 runs failed with
+`LeagueGameLog failed after 3 attempts for season 2026-27` (stats.nba.com
+refusing the runner's datacenter IP, see known gaps), and GitHub then
+disabled the workflow for inactivity. It passed only as a local rehearsal
+(including the pre-season skip path). Until it is moved somewhere
+stats.nba.com will answer, run
+`uv run python -m pipelines.refresh_current_season` by hand and push the
+result; the deployed app's team stats are otherwise as of the last
+successful refresh.
 
 The frozen model artifact (`artifacts/nba/logistic_regression/model.joblib`,
 ~4KB) is now committed too -- a narrowly-scoped `.gitignore` exception, since
@@ -150,8 +154,10 @@ neither duplicates the other's logic.
 
 ## Live calibration monitoring — the addressable half of "no monitoring"
 
-There is no deployed service to instrument, so traditional production
-monitoring doesn't apply -- but the dashboard's own picks database
+The dashboard is deployed (see the README for the Streamlit Community
+Cloud link), but there is no service-level instrumentation: no
+metrics, alerting or uptime checks. What can be monitored is the model --
+the dashboard's own picks database
 (`sql/picks_schema.sql`) already records every real prediction alongside
 its real outcome once known, and nothing was summarizing it. Now
 `app/dashboard/live_calibration_monitor.py` does: it scores resolved
@@ -238,9 +244,10 @@ changes the selected model or its official test result:
 
 ## Dashboard agent — built, not yet run against a real model
 
-A chat panel in the dashboard sidebar drives the dashboard through an
-LLM agent (`app/agent/`). See the README's "Ask the dashboard" section
-for the tool list, configuration and limitations; the structure is:
+A chat panel in the dashboard sidebar and two REST endpoints drive the
+dashboard through an LLM agent (`app/agent/`). See the README's "Ask the
+dashboard" section for the tool list, configuration and limitations; the
+structure is:
 
 - **`tools.py`** — six allowlisted tools, each a thin wrapper over an
   existing function (API prediction logic, live calibration monitor,
@@ -250,21 +257,36 @@ for the tool list, configuration and limitations; the structure is:
   raising, so the agent can correct itself.
 - **`loop.py`** — a plain OpenAI chat-completions tool-calling loop capped
   at 6 model calls, with the client injected so tests never reach a real
-  model.
+  model. Each request returns `AgentMetrics` (model calls, tool calls,
+  failed tool calls, seconds, tokens when the endpoint reports them) and
+  logs one line on the `nba.agent` logger.
+- **`faithfulness.py`** — checks the written answer: every number, date
+  and season must be found in a tool result, tool argument or the user's
+  messages (percent/fraction forms, the away-team complement and list
+  counts allowed). It is a tripwire for invented or misquoted figures, not
+  a proof; it cannot tell a correct figure attached to the wrong claim,
+  and it may flag a legitimate derived number.
 - **`ui_state.py`** — the only place that knows what a tool result means
   for the UI (which date, which game, which table/chart). Pure data, no
-  Streamlit or LLM import; `app/dashboard/agent_panel.py` renders it.
+  Streamlit or LLM import; `app/dashboard/agent_panel.py` renders it, with
+  the cost line and an unsupported-numbers warning under each answer.
+- **`app/api/`** — `GET /agent/tools` and `POST /agent/chat` (503 when no
+  model is configured, 502 when the model call fails, 422 for a malformed
+  request). Their schemas and logic are in `agent_schemas.py` and
+  `agent_chat.py`, imported lazily by `main.py` to avoid a circular import.
 - **`eval.py`** — 21 labeled requests scored on the model's first tool
   call (tool-selection and argument accuracy).
 
 What has and hasn't been verified: the tools were run against the real
-data on disk; the loop, UI-state layer and eval scoring are unit-tested
-with a scripted fake client; and the chat panel was driven in a browser
-against a scripted OpenAI-compatible endpoint, which is how a real bug
-was caught (an `st.rerun()` after each turn reset the date picker
-whenever a non-date tool ran). No real model has been called, so the
-eval has no results and nothing is known yet about how well a real
-model routes requests or how faithfully it reports tool numbers.
+data on disk; the loop, faithfulness check, UI-state layer, endpoints and
+eval scoring are unit-tested with a scripted fake client; the chat panel
+has Streamlit AppTest coverage and was also driven in a browser against a
+scripted OpenAI-compatible endpoint, which caught a real bug (an
+`st.rerun()` after each turn reset the date picker whenever a non-date
+tool ran; a test now fails if it comes back). No real model has been
+called, so the eval has no results and nothing is known yet about how well
+a real model routes requests or how often the faithfulness check fires on
+real answers.
 
 ## Known gaps (honest, as of this writing)
 
@@ -274,18 +296,22 @@ model routes requests or how faithfully it reports tool numbers.
 - No CI job exercises the dashboard, the API, the agent's real LLM calls,
   or the live NBA.com endpoints — by design, since those need network
   access CI shouldn't depend on. Only the synthetic-fixture pytest suite
-  (394 tests as of this writing) runs in CI.
-- No deployment story yet. The API and dashboard, plus the now-scheduled
-  live-season refresh (above), are all ready to deploy, but nothing has
-  been pushed to a public host -- no hosting, TLS, or auth is provisioned.
-  This is the one remaining piece between "runs correctly" and "a
-  recruiter/user can open a URL and use it."
-- `stats.nba.com` is known to occasionally rate-limit or block requests
-  from datacenter IPs (cloud/CI runners), even when the identical request
-  works fine from a residential connection. The scheduled refresh workflow
-  already retries with backoff (`max_attempts`), but a run failing in a
-  hosted environment that works locally is the likely explanation, not a
-  code regression.
+  (448 tests as of this writing) runs in CI.
+- The dashboard is live on Streamlit Community Cloud, but only the
+  dashboard: the FastAPI service is not hosted, and there is no auth or
+  rate limiting. The free tier sleeps the app when idle. The
+  redeploy that added the agent panel and the `openai` dependency has not
+  been verified live. Streamlit Cloud's filesystem is not durable, so
+  `picks.db` (and with it the live calibration monitor's data) likely
+  resets when the app restarts -- not verified. If a model key is ever added
+  to the public app's secrets, any visitor can spend it through the chat
+  panel; there is no per-visitor limit.
+- The live-season refresh is not running. `stats.nba.com` blocks GitHub's
+  datacenter IPs (the retries in `max_attempts` don't help), the workflow
+  failed on 2026-10-24/25 and was then auto-disabled, so the deployed
+  team stats, Elo ratings and roster continuity are stale for the 2026-27
+  season. Fix: run the refresh from a machine stats.nba.com answers (a
+  scheduled local job, or a self-hosted runner) and push the result.
 - The 2026-27 season's schedule was published shortly after this was
   written, which retired one gap and surfaced another. The "upcoming
   matchup" code path (`feature_source: "computed"`) was exercised against

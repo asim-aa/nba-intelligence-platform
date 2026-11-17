@@ -212,7 +212,9 @@ The dashboard's sidebar has a chat panel. Type a request in plain English and an
 answers it by calling a small, fixed set of tools — the same functions the dashboard and API
 already use — and the dashboard updates to show what it did: the slate date moves, the game it
 picked is marked, and an "Agent view" panel shows the table (and chart) for the last lookup.
-Every tool call is listed under "Actions taken" beneath each answer.
+Every tool call is listed under "Actions taken" beneath each answer, with a one-line cost
+(seconds, model calls, tool calls, tokens when the endpoint reports them). Any number, date or
+season in an answer that no tool result supports is called out in a warning.
 
 Things it can handle:
 
@@ -256,11 +258,13 @@ the tool results to that endpoint, in up to 6 model calls.
 ### Tests and eval
 
 ```bash
-uv run pytest tests/test_agent_tools.py tests/test_agent_loop.py \
-  tests/test_agent_ui_state.py tests/test_agent_eval.py
+uv run pytest tests/test_agent_tools.py tests/test_agent_loop.py tests/test_agent_faithfulness.py \
+  tests/test_agent_ui_state.py tests/test_agent_panel.py tests/test_api_agent.py \
+  tests/test_agent_eval.py
 ```
 
-None of these touch a real model: the loop tests script a fake client.
+None of these touch a real model: they script a fake client. The panel tests use Streamlit's
+`AppTest`.
 
 ```bash
 uv run python -m app.agent.eval
@@ -274,16 +278,19 @@ model yet** — there are no results to report. It needs the same environment va
 
 - The agent has only been exercised end to end against a scripted stand-in for the model, which
   checks the wiring, not a real model's judgment.
-- "Only state numbers that came from a tool" is an instruction in the system prompt. Nothing
-  checks the written answer against the tool results, so treat the "Agent view" table as the
-  source of truth.
+- "Only state numbers that came from a tool" is an instruction in the system prompt, backed by
+  a check that flags numbers, dates and seasons the tool results don't contain. The check is a
+  tripwire: it misses a correct figure attached to the wrong claim and can flag a legitimate
+  derived number, so treat the "Agent view" table as the source of truth.
 - `get_slate_predictions` fetches the schedule from stats.nba.com, which fails intermittently;
   the agent is told to report the failure rather than guess.
 - `predict_matchup` predicts any two teams on any date and does not check the game is scheduled.
 - Team lookup matches full names, nicknames, cities and abbreviations only ("Sixers" will not
   resolve), and "today" is the date on the machine running the dashboard.
 - Follow-up questions see earlier messages but not earlier tool results.
-- The agent runs inside the dashboard process; there is no `/agent/chat` HTTP endpoint.
+- The dashboard runs the agent in-process; it does not call the endpoints below.
+- Nothing limits who can use the chat on a public deployment. A model key in the app's secrets
+  can be spent by any visitor.
 
 ## Run the API
 
@@ -300,6 +307,18 @@ curl "http://127.0.0.1:8000/slate?date=2025-11-05"
 ```
 
 Interactive API docs are at `http://127.0.0.1:8000/docs` once it's running.
+
+The dashboard's agent is also available over HTTP. `GET /agent/tools` lists the allowlisted
+tools with their input schemas; `POST /agent/chat` runs a request and returns the answer, every
+tool call with its result, the request metrics and any numbers the answer states that no tool
+result supports. It needs the model settings from "Ask the dashboard" and returns 503 without
+them, 502 if the model call fails, and 422 for a malformed request (empty or over-long message,
+unknown role, more than 20 history turns).
+
+```bash
+curl -X POST http://127.0.0.1:8000/agent/chat -H "Content-Type: application/json" \
+  -d '{"message": "Which team has the abbreviation OKC?"}'
+```
 
 ## Repository structure
 
