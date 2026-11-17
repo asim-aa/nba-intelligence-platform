@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException, Query
 from modeling.evaluation.run_final_evaluation import SELECTED_MODEL
 from modeling.serving.matchup_features import compute_matchup_features
 from modeling.serving.predict_matchup import load_selected_model, predict_home_win_probability
+from openai import OpenAIError
 from pipelines.ingestion.fetch_schedule import (
     fetch_schedule,
     filter_regular_season_games,
@@ -32,6 +33,8 @@ from pipelines.ingestion.fetch_schedule import (
     season_for_date,
 )
 from pydantic import BaseModel, Field
+
+from app.api.agent_schemas import ChatRequest, ChatResponse, ToolInfo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -182,3 +185,34 @@ def slate(date: str = Query(..., description="YYYY-MM-DD")) -> list[MatchupPredi
         raise HTTPException(status_code=503, detail=str(error)) from error
     except RuntimeError as error:
         raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+# The two agent routes import app.api.agent_chat inside the handler, not at
+# the top of this module: that module imports app.agent, whose tools import
+# this one, so a top-level import would be circular.
+
+
+@app.get("/agent/tools", response_model=list[ToolInfo])
+def agent_tools() -> list[ToolInfo]:
+    """List the tools the dashboard agent may call, with their input schemas."""
+
+    from app.api import agent_chat
+
+    return agent_chat.list_tools()
+
+
+@app.post("/agent/chat", response_model=ChatResponse)
+def agent_chat_endpoint(request: ChatRequest) -> ChatResponse:
+    """Answer one plain-English request by running the agent's allowlisted tools."""
+
+    from app.api import agent_chat
+
+    unavailable = agent_chat.configuration_error()
+
+    if unavailable is not None:
+        raise HTTPException(status_code=503, detail=unavailable)
+
+    try:
+        return agent_chat.run_chat(PROJECT_ROOT, request)
+    except OpenAIError as error:
+        raise HTTPException(status_code=502, detail=f"The model request failed: {error}") from error
