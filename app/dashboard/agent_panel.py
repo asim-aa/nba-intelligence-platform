@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 from openai import OpenAIError
 
-from app.agent.loop import client_from_env, configuration_error, run_agent
+from app.agent.loop import AgentMetrics, client_from_env, configuration_error, run_agent
 from app.agent.ui_state import DashboardState, apply_tool_result
 
 STATE_KEY: Final[str] = "agent_state"
@@ -31,6 +31,23 @@ def agent_state() -> DashboardState:
     """Return what the agent last pointed the dashboard at."""
 
     return st.session_state.setdefault(STATE_KEY, DashboardState())
+
+
+def describe_metrics(metrics: AgentMetrics) -> str:
+    """One line of what a request cost, for under the answer."""
+
+    text = (
+        f"{metrics.seconds:.1f}s · {metrics.model_calls} model call(s) · "
+        f"{metrics.tool_calls} tool call(s)"
+    )
+
+    if metrics.tool_errors:
+        text += f" ({metrics.tool_errors} failed)"
+
+    if metrics.prompt_tokens is not None:
+        text += f" · {metrics.prompt_tokens + metrics.completion_tokens} tokens"
+
+    return text
 
 
 def run_turn(project_root: Path, chat: list[dict[str, object]], prompt: str) -> None:
@@ -61,7 +78,15 @@ def run_turn(project_root: Path, chat: list[dict[str, object]], prompt: str) -> 
         st.session_state[SLATE_DATE_KEY] = dt.date.fromisoformat(state.slate_date)
 
     chat.append({"role": "user", "content": prompt})
-    chat.append({"role": "assistant", "content": result.answer, "actions": result.tool_calls})
+    chat.append(
+        {
+            "role": "assistant",
+            "content": result.answer,
+            "actions": result.tool_calls,
+            "ungrounded": result.ungrounded_numbers,
+            "metrics": result.metrics,
+        }
+    )
 
 
 def render_agent_chat(project_root: Path) -> None:
@@ -100,6 +125,15 @@ def render_agent_chat(project_root: Path) -> None:
         for turn in chat:
             with st.chat_message(turn["role"]):
                 st.write(turn["content"])
+
+                if turn.get("ungrounded"):
+                    st.warning(
+                        "Not backed by any tool result, so check before trusting: "
+                        + ", ".join(turn["ungrounded"])
+                    )
+
+                if turn.get("metrics"):
+                    st.caption(describe_metrics(turn["metrics"]))
 
                 if turn.get("actions"):
                     with st.expander(f"Actions taken ({len(turn['actions'])})"):

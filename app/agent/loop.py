@@ -14,15 +14,20 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
+import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
 from openai import OpenAI
 
+from app.agent.faithfulness import check_faithfulness
 from app.agent.tools import execute_tool, tool_specs
+
+logger = logging.getLogger("nba.agent")
 
 MODEL_ENV_VAR: Final[str] = "NBA_AGENT_MODEL"
 MAX_ITERATIONS: Final[int] = 6
@@ -63,16 +68,32 @@ class ToolCallRecord:
 
 
 @dataclass(frozen=True)
+class AgentMetrics:
+    """What one request cost. Token counts are None when the endpoint reports none."""
+
+    model_calls: int = 0
+    tool_calls: int = 0
+    tool_errors: int = 0
+    seconds: float = 0.0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
+@dataclass(frozen=True)
 class AgentResult:
     """The agent's answer plus every action it took to get there.
 
     completed is False when the loop hit max_iterations before the model
     produced a final answer; answer is then a fixed notice, not model text.
+    ungrounded_numbers are the figures in a completed answer that no tool
+    result, tool argument or user message supports (see faithfulness.py).
     """
 
     answer: str
     tool_calls: list[ToolCallRecord]
     completed: bool
+    metrics: AgentMetrics = field(default_factory=AgentMetrics)
+    ungrounded_numbers: list[str] = field(default_factory=list)
 
 
 def configuration_error() -> str | None:
@@ -119,6 +140,9 @@ def run_agent(
     questions keep their context.
     """
 
+    started = time.perf_counter()
+    model_calls = prompt_tokens = completion_tokens = 0
+    reported_usage = False
     messages: list[dict[str, object]] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(today=today.isoformat())},
         *history,
@@ -126,14 +150,43 @@ def run_agent(
     ]
     records: list[ToolCallRecord] = []
 
+    def finish(answer: str, completed: bool) -> AgentResult:
+        metrics = AgentMetrics(
+            model_calls=model_calls,
+            tool_calls=len(records),
+            tool_errors=sum("error" in record.result for record in records),
+            seconds=round(time.perf_counter() - started, 3),
+            prompt_tokens=prompt_tokens if reported_usage else None,
+            completion_tokens=completion_tokens if reported_usage else None,
+        )
+        user_messages = [m["content"] for m in history if m["role"] == "user"] + [user_message]
+        ungrounded = (
+            check_faithfulness(answer, user_messages, [(r.arguments, r.result) for r in records])
+            if completed
+            else []
+        )
+        logger.info(
+            "agent request: completed=%s %s ungrounded=%d", completed, metrics, len(ungrounded)
+        )
+
+        return AgentResult(answer, records, completed, metrics, ungrounded)
+
     for _ in range(max_iterations):
         response = client.chat.completions.create(
             model=model, messages=messages, tools=tool_specs()
         )
+        model_calls += 1
+        usage = getattr(response, "usage", None)
+
+        if usage is not None:
+            reported_usage = True
+            prompt_tokens += usage.prompt_tokens
+            completion_tokens += usage.completion_tokens
+
         message = response.choices[0].message
 
         if not message.tool_calls:
-            return AgentResult(answer=message.content or "", tool_calls=records, completed=True)
+            return finish(message.content or "", completed=True)
 
         messages.append(
             {
@@ -171,4 +224,4 @@ def run_agent(
                 }
             )
 
-    return AgentResult(answer=MAX_ITERATIONS_ANSWER, tool_calls=records, completed=False)
+    return finish(MAX_ITERATIONS_ANSWER, completed=False)

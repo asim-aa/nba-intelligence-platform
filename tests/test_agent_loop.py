@@ -7,6 +7,7 @@ so the tests can assert both what the loop did and what it told the model.
 
 import datetime as dt
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,7 @@ import pytest
 from app.agent.loop import (
     MAX_ITERATIONS_ANSWER,
     MODEL_ENV_VAR,
+    AgentMetrics,
     client_from_env,
     run_agent,
 )
@@ -232,3 +234,76 @@ def test_client_from_env_reads_model_and_base_url(monkeypatch: pytest.MonkeyPatc
 
     assert model == "some-model"
     assert str(client.base_url) == "http://localhost:9999/v1/"
+
+
+def with_usage(response: SimpleNamespace, prompt: int, completion: int) -> SimpleNamespace:
+    response.usage = SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion)
+
+    return response
+
+
+def test_metrics_count_calls_tools_errors_and_sum_reported_tokens(tmp_path: Path) -> None:
+    client = FakeClient(
+        with_usage(tool_reply(("c1", "find_team", '{"query": "Seattle"}')), 100, 10),
+        with_usage(tool_reply(("c2", "find_team", '{"query": "Thunder"}')), 150, 12),
+        with_usage(text_reply("Done."), 200, 5),
+    )
+
+    result = run_agent(client, "test-model", "Seattle's team?", tmp_path, TODAY)
+
+    assert result.metrics.model_calls == 3
+    assert result.metrics.tool_calls == 2
+    assert result.metrics.tool_errors == 1
+    assert result.metrics.prompt_tokens == 450
+    assert result.metrics.completion_tokens == 27
+    assert result.metrics.seconds >= 0
+
+
+def test_metrics_report_unknown_tokens_when_the_endpoint_gives_no_usage(tmp_path: Path) -> None:
+    result = run_agent(FakeClient(text_reply("hi")), "test-model", "hello", tmp_path, TODAY)
+
+    assert result.metrics == AgentMetrics(model_calls=1, seconds=result.metrics.seconds)
+    assert result.metrics.prompt_tokens is None
+
+
+def test_each_request_logs_one_metrics_line(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="nba.agent"):
+        run_agent(FakeClient(text_reply("hi")), "test-model", "hello", tmp_path, TODAY)
+
+    lines = [r.getMessage() for r in caplog.records if r.name == "nba.agent"]
+
+    assert len(lines) == 1
+    assert lines[0].startswith("agent request: completed=True AgentMetrics(model_calls=1,")
+    assert lines[0].endswith("ungrounded=0")
+
+
+def test_an_answer_with_an_unsupported_number_is_flagged(tmp_path: Path) -> None:
+    client = FakeClient(
+        tool_reply(("c1", "find_team", '{"query": "Lakers"}')),
+        text_reply("The Lakers (team 1610612747) have won 17 straight."),
+    )
+
+    result = run_agent(client, "test-model", "Lakers?", tmp_path, TODAY)
+
+    assert result.ungrounded_numbers == ["17"]
+
+
+def test_an_answer_backed_by_the_tool_result_is_not_flagged(tmp_path: Path) -> None:
+    client = FakeClient(
+        tool_reply(("c1", "find_team", '{"query": "Lakers"}')),
+        text_reply("The Lakers are team 1610612747."),
+    )
+
+    assert run_agent(client, "test-model", "Lakers?", tmp_path, TODAY).ungrounded_numbers == []
+
+
+def test_the_iteration_cap_notice_is_not_checked_for_faithfulness(tmp_path: Path) -> None:
+    client = FakeClient(tool_reply(("c1", "find_team", '{"query": "Lakers"}')))
+
+    result = run_agent(client, "test-model", "Loop", tmp_path, TODAY, max_iterations=2)
+
+    assert result.completed is False
+    assert result.ungrounded_numbers == []
+    assert result.metrics.model_calls == 2

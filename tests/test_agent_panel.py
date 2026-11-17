@@ -10,7 +10,7 @@ from pathlib import Path
 
 import app.dashboard.agent_panel as panel_module
 import pytest
-from app.agent.loop import MODEL_ENV_VAR, AgentResult, ToolCallRecord
+from app.agent.loop import MODEL_ENV_VAR, AgentMetrics, AgentResult, ToolCallRecord
 from app.agent.ui_state import DashboardState, Panel
 from openai import OpenAIError
 from streamlit.testing.v1 import AppTest
@@ -226,3 +226,42 @@ def test_an_empty_panel_says_so_instead_of_rendering_a_table(script_path: str) -
     assert not at.exception
     assert len(at.dataframe) == 0
     assert any("Nothing to show" in caption.value for caption in at.caption)
+
+
+def test_a_turn_shows_what_the_request_cost(
+    script_path: str, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    metrics = AgentMetrics(
+        model_calls=2, tool_calls=1, tool_errors=0, seconds=1.25,
+        prompt_tokens=300, completion_tokens=40,
+    )  # fmt: skip
+    result = AgentResult("ok", matchup_result().tool_calls, True, metrics)
+    scripted_agent(monkeypatch, result)
+
+    at = ask(AppTest.from_file(script_path).run(), "hello")
+
+    assert "1.2s · 2 model call(s) · 1 tool call(s) · 340 tokens" in [
+        caption.value for caption in at.sidebar.caption
+    ]
+
+
+def test_unsupported_numbers_are_called_out_under_the_answer(
+    script_path: str, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = AgentResult("It is 71%.", [], True, ungrounded_numbers=["71%"])
+    scripted_agent(monkeypatch, result)
+
+    at = ask(AppTest.from_file(script_path).run(), "hello")
+
+    assert "Not backed by any tool result" in at.sidebar.warning[0].value
+    assert "71%" in at.sidebar.warning[0].value
+
+
+def test_a_clean_answer_has_no_warning(
+    script_path: str, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripted_agent(monkeypatch, matchup_result())
+
+    at = ask(AppTest.from_file(script_path).run(), "hello")
+
+    assert len(at.sidebar.warning) == 0
