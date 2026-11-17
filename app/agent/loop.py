@@ -75,6 +75,18 @@ class AgentResult:
     completed: bool
 
 
+def configuration_error() -> str | None:
+    """Return what is missing from the environment, or None when the agent can run."""
+
+    if os.environ.get("OPENAI_API_KEY") and os.environ.get(MODEL_ENV_VAR):
+        return None
+
+    return (
+        f"The agent needs OPENAI_API_KEY and {MODEL_ENV_VAR} set "
+        "(plus OPENAI_BASE_URL for a non-OpenAI endpoint)."
+    )
+
+
 def client_from_env() -> tuple[OpenAI, str]:
     """Build the LLM client and model name from environment variables.
 
@@ -82,15 +94,12 @@ def client_from_env() -> tuple[OpenAI, str]:
     itself; only the model name is this project's own variable.
     """
 
-    model = os.environ.get(MODEL_ENV_VAR)
+    error = configuration_error()
 
-    if not os.environ.get("OPENAI_API_KEY") or not model:
-        raise ValueError(
-            f"The agent needs OPENAI_API_KEY and {MODEL_ENV_VAR} set "
-            "(plus OPENAI_BASE_URL for a non-OpenAI endpoint)."
-        )
+    if error is not None:
+        raise ValueError(error)
 
-    return OpenAI(), model
+    return OpenAI(), os.environ[MODEL_ENV_VAR]
 
 
 def run_agent(

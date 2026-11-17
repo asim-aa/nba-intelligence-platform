@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 from openai import OpenAIError
 
-from app.agent.loop import client_from_env, run_agent
+from app.agent.loop import client_from_env, configuration_error, run_agent
 from app.agent.ui_state import DashboardState, apply_tool_result
 
 STATE_KEY: Final[str] = "agent_state"
@@ -36,12 +36,7 @@ def agent_state() -> DashboardState:
 def run_turn(project_root: Path, chat: list[dict[str, object]], prompt: str) -> None:
     """Run the agent on one request, then apply what it did to session state."""
 
-    try:
-        client, model = client_from_env()
-    except ValueError as error:
-        st.warning(str(error))
-        return
-
+    client, model = client_from_env()
     history = [{"role": turn["role"], "content": turn["content"]} for turn in chat]
 
     try:
@@ -87,8 +82,16 @@ def render_agent_chat(project_root: Path) -> None:
             "Ask in plain English. The agent can only use this dashboard's own tools, and "
             "its numbers are model estimates -- not betting advice."
         )
+        enabled = configuration_error() is None
+
+        if not enabled:
+            st.info(
+                "Chat is disabled: no language model is configured for this app. "
+                "Set OPENAI_API_KEY and NBA_AGENT_MODEL to enable it (see the README)."
+            )
+
         transcript = st.container()
-        prompt = st.chat_input("e.g. Pick the winners for tomorrow's games")
+        prompt = st.chat_input("e.g. Pick the winners for tomorrow's games", disabled=not enabled)
 
     with transcript:
         if prompt:
